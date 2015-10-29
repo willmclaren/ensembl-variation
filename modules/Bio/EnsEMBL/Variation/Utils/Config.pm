@@ -218,6 +218,9 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Intergenic variant',
         is_default => 1,
         impact => 'MODIFIER',
+        include => {
+            within_feature => 0
+        },
     },
     {
         SO_accession => 'SO:0001631',
@@ -232,6 +235,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A sequence variant located 5\' of a gene',
         label => 'Upstream gene variant',
         impact => 'MODIFIER',
+        include => {
+            within_feature => 0
+        },
     },
     {
         SO_accession => 'SO:0001632',
@@ -246,6 +252,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A sequence variant located 3\' of a gene',
         label => 'Downstream gene variant',
         impact => 'MODIFIER',
+        include => {
+            within_feature => 0
+        },
     },
     {
         SO_accession => 'SO:0001575',
@@ -262,9 +271,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Splice donor variant',
         impact => 'HIGH',
         include => {
-          within_feature => 1,
-          # intron => 1,
-        }
+            intron_boundary => 1
+        },
     },
     {
         SO_accession => 'SO:0001574',
@@ -281,9 +289,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Splice acceptor variant',
         impact => 'HIGH',
         include => {
-          within_feature => 1,
-          # intron => 1,
-        }
+            intron_boundary => 1
+        },
     },
     {
         SO_accession => 'SO:0001630',
@@ -299,8 +306,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Splice region variant',
         impact => 'LOW',
         include => {
-          within_feature => 1,
-        }
+            intron_boundary => 1
+        },
     },
     {
         SO_accession => 'SO:0001627',
@@ -317,8 +324,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Intron variant',
         impact => 'MODIFIER',
         include => {
-          within_feature => 1,
-          # intron => 1,
+            intron => 1,
         }
     },
     {
@@ -336,7 +342,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => '5 prime UTR variant',
         impact => 'MODIFIER',
         include => {
-          utr => 1,
+            utr => 1,
         }
     },
     {
@@ -354,7 +360,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => '3 prime UTR variant',
         impact => 'MODIFIER',
         include => {
-          utr => 1,
+            utr => 1,
         }
     },
 #    {
@@ -385,7 +391,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Synonymous variant',
         impact => 'LOW',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -403,7 +409,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Missense variant',
         impact => 'MODERATE',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -420,8 +426,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Inframe insertion',
         impact => 'MODERATE',
         include => {
-          coding => 1,
-          insertion => 1,
+            coding => 1,
+            insertion => 1,
         }
     },
     {
@@ -438,8 +444,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Inframe deletion',
         impact => 'MODERATE',
         include => {
-          coding => 1,
-          deletion => 1,
+            coding => 1,
+            deletion => 1,
         }
     },
     {
@@ -457,7 +463,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Stop gained',
         impact => 'HIGH',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -474,7 +480,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Stop lost',
         impact => 'HIGH',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -491,7 +497,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Stop retained variant',
         impact => 'LOW',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -508,7 +514,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Start lost',
         impact => 'HIGH',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -526,7 +532,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Frameshift variant',
         impact => 'HIGH',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -543,7 +549,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Incomplete terminal codon variant',
         impact => 'LOW',
         include => {
-          within_feature => 1,
+            coding => 1,
         }
     },
     {
@@ -560,8 +566,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'NMD transcript variant',
         impact => 'MODIFIER',
         include => {
-          within_feature => 1,
-          nonsense_mediated_decay => 1,
+            within_feature => 1,
+            nonsense_mediated_decay => 1,
         }
     },
     {
@@ -578,8 +584,8 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Non coding transcript variant',
         impact => 'MODIFIER',
         include => {
-          within_feature => 1,
-          protein_coding => 0,
+            within_feature => 1,
+            protein_coding => 0,
         }
     },
     {
@@ -596,9 +602,9 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Non coding transcript exon variant',
         impact => 'MODIFIER',
         include => {
-          within_feature => 1,
-          protein_coding => 0,
-          # exon => 1,
+            within_feature => 1,
+            protein_coding => 0,
+            exon => 1,
         }
     },
     {
@@ -615,9 +621,9 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Mature miRNA variant',
         impact => 'MODIFIER',
         include => {
-          within_feature => 1,
-          protein_coding => 0,
-          nonsense_mediated_decay => 0,
+            within_feature => 1,
+            protein_coding => 0,
+            nonsense_mediated_decay => 0,
         }
     },
     {
@@ -634,7 +640,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Coding sequence variant',
         impact => 'MODIFIER',
         include => {
-          coding => 1,
+            coding => 1,
         }
     },
     {
@@ -726,7 +732,7 @@ our @OVERLAP_CONSEQUENCES = (
         label => 'Transcript ablation',
         impact => 'HIGH',
         include => {
-          deletion => 1,
+            deletion => 1,
         }
     },
 #    {
@@ -753,6 +759,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A feature amplification of a region containing a transcript',
         label => 'Transcript amplification',
         impact => 'HIGH',
+        include => {
+            increase_length => 1,
+        },
     },
 #    {
 #        SO_accession => 'SO:0001883',
@@ -778,6 +787,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A feature ablation whereby the deleted region includes a transcription factor binding site',
         label => 'TFBS ablation',
         impact => 'MODERATE',
+        include => {
+            deletion => 1,
+        }
     },
 #    {
 #        SO_accession => 'SO:0001888',
@@ -803,6 +815,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A feature amplification of a region containing a transcription factor binding site',
         label => 'TFBS amplification',
         impact => 'MODIFIER',
+        include => {
+            increase_length => 1,
+        },
     },
 #    {
 #        SO_accession => 'SO:0001885',
@@ -828,6 +843,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A feature ablation whereby the deleted region includes a regulatory region',
         label => 'Regulatory region ablation',
         impact => 'MODERATE',
+        include => {
+            deletion => 1,
+        }
     },
 #    {
 #        SO_accession => 'SO:0001887',
@@ -853,6 +871,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A feature amplification of a region containing a regulatory region',
         label => 'Regulatory region amplification',
         impact => 'MODIFIER',
+        include => {
+            increase_length => 1,
+        },
     },
 #    {
 #        SO_accession => 'SO:0001884',
@@ -878,6 +899,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A sequence variant that causes the extension of a genomic feature, with regard to the reference sequence',
         label => 'Feature elongation',
         impact => 'MODIFIER',
+        include => {
+            increase_length => 1,
+        },
     },
     {
         SO_accession => 'SO:0001906',
@@ -891,6 +915,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A sequence variant that causes the reduction of a genomic feature, with regard to the reference sequence',
         label => 'Feature truncation',
         impact => 'MODIFIER',
+        include => {
+            decrease_length => 1,
+        },
     },
     {
         SO_accession => 'SO:0001818', 
@@ -904,6 +931,9 @@ our @OVERLAP_CONSEQUENCES = (
         description => 'A sequence_variant which is predicted to change the protein encoded in the coding sequence', 
         label => 'protein altering variant',
         impact => 'MODERATE',
+        include => {
+            coding => 1,
+        },
     },
 
 );

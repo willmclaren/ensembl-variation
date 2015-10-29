@@ -244,6 +244,9 @@ our %VARIATION_CLASSES = (
 
 our $DEFAULT_OVERLAP_CONSEQUENCE = Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'is_default' => 1,
+  'include' => {
+                 'within_feature' => 0
+               },
   'description' => 'A sequence variant located in the intergenic region, between genes',
   'SO_accession' => 'SO:0001628',
   'SO_term' => 'intergenic_variant',
@@ -260,6 +263,9 @@ our %OVERLAP_CONSEQUENCES = (
 'intergenic_variant' => $DEFAULT_OVERLAP_CONSEQUENCE,
 'upstream_gene_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'within_feature' => 0
+               },
   'feature_SO_term' => 'transcript',
   'description' => 'A sequence variant located 5\' of a gene',
   'SO_accession' => 'SO:0001631',
@@ -275,6 +281,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'downstream_gene_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'within_feature' => 0
+               },
   'feature_SO_term' => 'transcript',
   'description' => 'A sequence variant located 3\' of a gene',
   'SO_accession' => 'SO:0001632',
@@ -291,7 +300,7 @@ our %OVERLAP_CONSEQUENCES = (
 'splice_donor_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::VariationFeature',
   'include' => {
-                 'within_feature' => 1
+                 'intron_boundary' => 1
                },
   'NCBI_term' => 'splice-5',
   'feature_SO_term' => 'primary_transcript',
@@ -310,7 +319,7 @@ our %OVERLAP_CONSEQUENCES = (
 'splice_acceptor_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::VariationFeature',
   'include' => {
-                 'within_feature' => 1
+                 'intron_boundary' => 1
                },
   'NCBI_term' => 'splice-3',
   'feature_SO_term' => 'primary_transcript',
@@ -329,7 +338,7 @@ our %OVERLAP_CONSEQUENCES = (
 'splice_region_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::VariationFeature',
   'include' => {
-                 'within_feature' => 1
+                 'intron_boundary' => 1
                },
   'feature_SO_term' => 'primary_transcript',
   'description' => 'A sequence variant in which a change has occurred within the region of the splice site, either within 1-3 bases of the exon or 3-8 bases of the intron',
@@ -347,7 +356,7 @@ our %OVERLAP_CONSEQUENCES = (
 'intron_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
   'include' => {
-                 'within_feature' => 1
+                 'intron' => 1
                },
   'NCBI_term' => 'intron',
   'feature_SO_term' => 'primary_transcript',
@@ -572,7 +581,7 @@ our %OVERLAP_CONSEQUENCES = (
 'incomplete_terminal_codon_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::VariationFeature',
   'include' => {
-                 'within_feature' => 1
+                 'coding' => 1
                },
   'feature_SO_term' => 'mRNA',
   'description' => 'A sequence variant where at least one base of the final codon of an incompletely annotated transcript is changed',
@@ -629,6 +638,7 @@ our %OVERLAP_CONSEQUENCES = (
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
   'include' => {
                  'within_feature' => 1,
+                 'exon' => 1,
                  'protein_coding' => 0
                },
   'feature_SO_term' => 'ncRNA',
@@ -731,6 +741,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'transcript_amplification' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'increase_length' => 1
+               },
   'feature_SO_term' => 'mRNA',
   'description' => 'A feature amplification of a region containing a transcript',
   'SO_accession' => 'SO:0001889',
@@ -745,6 +758,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'TFBS_ablation' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'deletion' => 1
+               },
   'feature_SO_term' => 'TF_binding_site',
   'description' => 'A feature ablation whereby the deleted region includes a transcription factor binding site',
   'SO_accession' => 'SO:0001895',
@@ -759,6 +775,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'TFBS_amplification' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'increase_length' => 1
+               },
   'feature_SO_term' => 'TF_binding_site',
   'description' => 'A feature amplification of a region containing a transcription factor binding site',
   'SO_accession' => 'SO:0001892',
@@ -773,6 +792,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'regulatory_region_ablation' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'deletion' => 1
+               },
   'feature_SO_term' => 'TF_binding_site',
   'description' => 'A feature ablation whereby the deleted region includes a regulatory region',
   'SO_accession' => 'SO:0001894',
@@ -787,6 +809,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'regulatory_region_amplification' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'increase_length' => 1
+               },
   'feature_SO_term' => 'TF_binding_site',
   'description' => 'A feature amplification of a region containing a regulatory region',
   'SO_accession' => 'SO:0001891',
@@ -801,6 +826,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'feature_elongation' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'increase_length' => 1
+               },
   'feature_SO_term' => 'sequence_feature',
   'description' => 'A sequence variant that causes the extension of a genomic feature, with regard to the reference sequence',
   'SO_accession' => 'SO:0001907',
@@ -815,6 +843,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'feature_truncation' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::BaseVariationFeature',
+  'include' => {
+                 'decrease_length' => 1
+               },
   'feature_SO_term' => 'sequence_feature',
   'description' => 'A sequence variant that causes the reduction of a genomic feature, with regard to the reference sequence',
   'SO_accession' => 'SO:0001906',
@@ -829,6 +860,9 @@ our %OVERLAP_CONSEQUENCES = (
 ),
 'protein_altering_variant' => Bio::EnsEMBL::Variation::OverlapConsequence->new_fast({
   'variant_feature_class' => 'Bio::EnsEMBL::Variation::VariationFeature',
+  'include' => {
+                 'coding' => 1
+               },
   'feature_SO_term' => 'mRNA',
   'description' => 'A sequence_variant which is predicted to change the protein encoded in the coding sequence',
   'SO_accession' => 'SO:0001818',

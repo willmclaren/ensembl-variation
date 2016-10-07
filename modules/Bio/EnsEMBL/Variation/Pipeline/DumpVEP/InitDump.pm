@@ -53,41 +53,17 @@ sub fetch_input {
 
   my $servers = $self->required_param('dump_servers');
   
-  my @species;
+  my @jobs;
   
   foreach my $server(@$servers) {
-    push @species, @{$self->get_species_list($server)};
+    push @jobs, @{$self->get_all_jobs_by_server($server)};
   }
 
   # make some lists
-  my (@var, @normal, @highmem, @refseq, @refseq_highmem);
-
-  foreach my $species(@species) {
-    push @var, $species if $species->{variation};
-
-    if($species->{species} eq 'homo_sapiens') {
-      if($species->{species_refseq}) {
-        push @refseq_highmem, $species;
-      }
-      else {
-        push @highmem, $species;
-      }
-    }
-    else {
-      if($species->{species_refseq}) {
-        push @refseq, $species;
-      }
-      else {
-        push @normal, $species;
-      }
-    }
+  foreach my $type(qw(core otherfeatures variation regulation)) {
+    $self->param($type, [grep {$_->{type} eq $type} @jobs]);
   }
-  
-  $self->param('normal_list', \@normal);
-  $self->param('normal_highmem_list', \@highmem);
-  $self->param('refseq_list', \@refseq);
-  $self->param('refseq_highmem_list', \@refseq_highmem);
-  $self->param('var_list', \@var);
+
   return;
 }
 
@@ -95,45 +71,16 @@ sub write_output {
   my $self = shift;
 
   # 1 = distribute dumps (not set here)
-
   # 2 = normal
-  # 3 = highmem
-  # 4 = refseq
-  # 5 = refseq highmem
-
-  # 6 = all (finish_dump)
-  # 7 = all refseqs (merge)
-  # 8 = var (convert)
-
-  $self->dataflow_output_id($self->param('normal_list'), 2);
-  $self->dataflow_output_id($self->param('normal_highmem_list'), 3);
-  $self->dataflow_output_id($self->param('refseq_list'), 4);
-  $self->dataflow_output_id($self->param('refseq_highmem_list'), 5);
-
-  $self->dataflow_output_id(
-    [
-      @{$self->param('normal_list')},
-      @{$self->param('normal_highmem_list')},
-      @{$self->param('refseq_list')},
-      @{$self->param('refseq_highmem_list')}
-    ],
-    6
-  ) if $self->param('merged');
-  
-  $self->dataflow_output_id(
-    [
-      @{$self->param('refseq_list')},
-      @{$self->param('refseq_highmem_list')}
-    ],
-    7
-  ) if $self->param('merged');
-
-  $self->dataflow_output_id($self->param('var_list'), 8) if $self->param('convert');
+  $self->dataflow_output_id($self->param('core'), 2);
+  $self->dataflow_output_id($self->param('otherfeatures'), 3);
+  $self->dataflow_output_id($self->param('variation'), 4);
+  $self->dataflow_output_id($self->param('regulation'), 5);
   
   return;
 }
 
-sub get_species_list {
+sub get_all_jobs_by_server {
   my $self = shift;
   my $server = shift;
 
@@ -183,7 +130,7 @@ sub get_species_list {
   @dbs = grep {$_ =~ /$pattern/i} @dbs if $pattern;
   @dbs = grep {$_ !~ /$exclude/i} @dbs if $exclude;
 
-  my @species;
+  my @return;
 
   foreach my $current_db_name (@dbs) {
     
@@ -212,66 +159,24 @@ sub get_species_list {
       
       if($count) {
         
-        # do we have a variation DB?
-        my $var_db_name = $current_db_name;
-        $var_db_name =~ s/otherfeatures/variation/;
-        my $has_var_db;
-        $sth = $dbc->prepare("SHOW DATABASES LIKE '$var_db_name';");
-        $sth->execute();
-        $sth->bind_columns(\$has_var_db);
-        $sth->fetch;
-        $sth->finish;
-        
-        $current_db_name =~ s/^([a-z]+\_[a-z,1-9]+)(\_[a-z]+)?(.+)/$1$2/;
-        $current_db_name =~ s/\_otherfeatures$//;
+        my $species = $current_db_name;
+        $species =~ s/^([a-z]+\_[a-z,1-9]+)(\_[a-z]+)?(.+)/$1$2/;
+        $species =~ s/\_otherfeatures$//;
         
         # copy server details
         my %species_hash = %$server;
       
-        $species_hash{species} = $current_db_name;
+        $species_hash{species} = $species;
         $species_hash{assembly} = $assembly;
-        $species_hash{species_refseq} = 1;
-        $species_hash{variation} = $has_var_db ? 1 : 0;
-        
+        $species_hash{dbname} = $current_db_name;
+
         # do we have SIFT or PolyPhen?
-        if($has_var_db) {
-          $sth = $dbc->prepare("SELECT meta_key, meta_value FROM $var_db_name\.meta WHERE meta_key in ('sift_version','polyphen_version')");
-          $sth->execute();
-          
-          my ($key, $val);
-          $sth->bind_columns(\$key, \$val);
-          
-          while($sth->fetch) {
-            $key =~ s/\_version//;
-            $species_hash{$key} = 'b';
-          }
-          $sth->finish();
-        }
-        
-        # do we have a regulation DB?
-        my $reg_db_name = $var_db_name;
-        $reg_db_name =~ s/variation/funcgen/;
-
-        my $has_reg_db;
-        $sth = $dbc->prepare("SHOW DATABASES LIKE '$reg_db_name';");
-        $sth->execute();
-        $sth->bind_columns(\$has_reg_db);
-        $sth->fetch;
-        $sth->finish;
-
-        if($has_reg_db) {
-          my $has_reg_build;
-
-          $sth = $dbc->prepare("SELECT version FROM $reg_db_name.regulatory_build");
-          $sth->execute();
-          $sth->bind_columns(\$has_reg_build);
-          $sth->fetch;
-          $sth->finish;
-
-          $species_hash{regulatory} = 1 if $has_reg_build;
+        if(my $var_db_name = $self->has_var_db($dbc, $current_db_name)) {
+          my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name);
+          $species_hash{$_} = $has_sift_poly->{$_} for keys %$has_sift_poly;
         }
 
-        push @species, \%species_hash;
+        push @return, @{$self->get_all_jobs_by_species_hash(\%species_hash, undef, undef, 'otherfeatures')};
       }
     }
     
@@ -289,33 +194,10 @@ sub get_species_list {
       my $count = 0;
       
       # do we have a variation DB?
-      my $var_db_name = $current_db_name;
-      $var_db_name =~ s/core/variation/;
-      my $has_var_db;
-      $sth = $dbc->prepare("SHOW DATABASES LIKE '$var_db_name';");
-      $sth->execute();
-      $sth->bind_columns(\$has_var_db);
-      $sth->fetch;
-      $sth->finish;
+      my $var_db_name = $self->has_var_db($dbc, $current_db_name);
       
       # do we have a regulation DB?
-      my $reg_db_name = $var_db_name;
-      $reg_db_name =~ s/variation/funcgen/;
-      my $has_reg_db;
-      $sth = $dbc->prepare("SHOW DATABASES LIKE '$reg_db_name';");
-      $sth->execute();
-      $sth->bind_columns(\$has_reg_db);
-      $sth->fetch;
-      $sth->finish;
-      my $has_reg_build;
-
-      if($has_reg_db) {
-        $sth = $dbc->prepare("SELECT version FROM $reg_db_name.regulatory_build");
-        $sth->execute();
-        $sth->bind_columns(\$has_reg_build);
-        $sth->fetch;
-        $sth->finish;
-      }
+      my $reg_db_name = $self->has_reg_build($dbc, $current_db_name);
       
       foreach $species_id(keys %$species_ids) {
         $sth = $dbc->prepare("SELECT version FROM ".$current_db_name.".coord_system WHERE species_id = ".$species_id." ORDER BY rank LIMIT 1;");
@@ -324,6 +206,7 @@ sub get_species_list {
         $sth->bind_columns(\$assembly);
         $sth->execute();
         $sth->fetch();
+        $sth->finish();
         
         next unless $assembly;
         
@@ -332,26 +215,15 @@ sub get_species_list {
         
         $species_hash{species} = $species_ids->{$species_id};
         $species_hash{assembly} = $assembly;
-        $species_hash{variation} = $has_var_db ? 1 : 0;
-        $species_hash{regulatory} = 1 if $has_reg_build;
-        $sth->finish();
+        $species_hash{dbname} = $current_db_name;
         
         # do we have SIFT or PolyPhen?
-        if($has_var_db) {
-          $sth = $dbc->prepare("SELECT meta_key, meta_value FROM $var_db_name\.meta WHERE meta_key in ('sift_version','polyphen_version') AND (species_id = $species_id OR species_id IS NULL)");
-          $sth->execute();
-          
-          my ($key, $val);
-          $sth->bind_columns(\$key, \$val);
-          
-          while($sth->fetch) {
-            $key =~ s/\_version//;
-            $species_hash{$key} = 'b';
-          }
-          $sth->finish();
+        if($var_db_name) {
+          my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name, $species_id);
+          $species_hash{$_} = $has_sift_poly->{$_} for keys %$has_sift_poly;
         }
 
-        push @species, \%species_hash;
+        push @return, @{$self->get_all_jobs_by_species_hash(\%species_hash, $var_db_name, $reg_db_name)};
         $count++;
       }
       
@@ -359,7 +231,162 @@ sub get_species_list {
     }
   }
   
-  return \@species;
+  return \@return;
+}
+
+sub has_var_db {
+  my $self = shift;
+  my $dbc = shift;
+  my $current_db_name = shift;
+
+  my $var_db_name = $current_db_name;
+  $var_db_name =~ s/core|otherfeatures/variation/;
+  my $has_var_db;
+  my $sth = $dbc->prepare("SHOW DATABASES LIKE '$var_db_name';");
+  $sth->execute();
+  $sth->bind_columns(\$has_var_db);
+  $sth->fetch;
+  $sth->finish;
+
+  return $has_var_db ? $var_db_name : undef;
+}
+
+sub has_sift_poly {
+  my $self = shift;
+  my $dbc = shift;
+  my $var_db_name = shift;
+  my $species_id = shift;
+  $species_id ||= 0;
+
+  my $sth = $dbc->prepare(qq{
+    SELECT meta_key, meta_value
+    FROM $var_db_name\.meta
+    WHERE meta_key in ('sift_version','polyphen_version')
+    AND (species_id = $species_id OR species_id IS NULL)
+  });
+  $sth->execute();
+  
+  my ($key, $val);
+  $sth->bind_columns(\$key, \$val);
+  
+  my %data;
+
+  while($sth->fetch) {
+    $key =~ s/\_version//;
+    $data{$key} = 'b';
+  }
+  $sth->finish();
+
+  return \%data;
+}
+
+sub has_reg_build {
+  my $self = shift;
+  my $dbc = shift;
+  my $current_db_name = shift;
+
+  my $reg_db_name = $current_db_name;
+  $reg_db_name =~ s/core|otherfeatures/funcgen/;
+  my $has_reg_db;
+  my $sth = $dbc->prepare("SHOW DATABASES LIKE '$reg_db_name';");
+  $sth->execute();
+  $sth->bind_columns(\$has_reg_db);
+  $sth->fetch;
+  $sth->finish;
+  my $has_reg_build;
+
+  if($has_reg_db) {
+    $sth = $dbc->prepare("SELECT version FROM $reg_db_name.regulatory_build");
+    $sth->execute();
+    $sth->bind_columns(\$has_reg_build);
+    $sth->fetch;
+    $sth->finish;
+  }
+
+  return $has_reg_build ? $reg_db_name : undef;
+}
+
+sub get_all_jobs_by_species_hash {
+  my $self = shift;
+  my $species_hash = shift;
+  my $has_var_db = shift;
+  my $has_reg_db = shift;
+  my $group = shift || 'core';
+
+  my $dba = Bio::EnsEMBL::DBSQL::DBAdaptor->new(
+    -group   => 'core',
+    -species => $species_hash->{species},
+    -port    => $species_hash->{port},
+    -host    => $species_hash->{host},
+    -user    => $species_hash->{user},
+    -pass    => $species_hash->{pass},
+    -dbname  => $species_hash->{dbname},
+  );
+
+  my $sa = $dba->get_SliceAdaptor;
+
+  my @slices = @{$sa->fetch_all('toplevel')};
+  push @slices, map {$_->alternate_slice} map {@{$_->get_all_AssemblyExceptionFeatures}} @slices;
+  push @slices, @{$sa->fetch_all('lrg', undef, 1, undef, 1)} if $self->param('lrg');
+
+  my @jobs;
+
+  my $min_length = 10e6;
+  my $added_length = 0;
+  my %hash;
+
+  foreach my $slice(sort {$b->end - $b->start <=> $a->end - $a->start} @slices) {
+    unless(%hash) {
+      %hash = %$species_hash;
+      $hash{type} = $group;
+      $hash{added_length} = 0;
+    }
+
+    push @{$hash{regions}}, {
+      chr => $slice->seq_region_name,
+      seq_region_id => $slice->get_seq_region_id,
+      start => $slice->start,
+      end => $slice->end,
+    };
+
+    $hash{added_length} += ($slice->end - $slice->start);
+
+    if($hash{added_length} > $min_length) {
+      $self->add_to_jobs(\@jobs, \%hash, $has_var_db, $has_reg_db);
+      $added_length = 0;
+      %hash = ();
+    }
+  }
+
+  $self->add_to_jobs(\@jobs, \%hash, $has_var_db, $has_reg_db);
+
+  # sort by type then length
+  @jobs = sort {$a->{type} cmp $b->{type} || $b->{added_length} <=> $b->{added_length}} @jobs;
+
+  return \@jobs;
+}
+
+sub add_to_jobs {
+  my $self = shift;
+  my $jobs = shift;
+  my $hash = shift;
+  my $has_var_db = shift;
+  my $has_reg_db = shift;
+
+  my %copy = %$hash;
+  push @$jobs, \%copy;
+
+  if($has_var_db) {
+    my %var = %{$hash};
+    $var{type} = 'variation';
+    push @$jobs, \%var;
+  }
+
+  if($has_reg_db) {
+    my %reg = %{$hash};
+    $reg{type} = 'regulation';
+    push @$jobs, \%reg;
+  }
 }
 
 1;

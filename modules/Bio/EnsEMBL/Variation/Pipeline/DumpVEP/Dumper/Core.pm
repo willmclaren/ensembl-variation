@@ -28,7 +28,7 @@ limitations under the License.
 
 =cut
 
-package Bio::EnsEMBL::Variation::Pipeline::DumpVEP::DumpVEP_core;
+package Bio::EnsEMBL::Variation::Pipeline::DumpVEP::Dumper::Core;
 
 use strict;
 use warnings;
@@ -38,7 +38,7 @@ use Bio::EnsEMBL::VEP::Config;
 use Bio::EnsEMBL::VEP::AnnotationSource::Database::Transcript;
 use Bio::EnsEMBL::VEP::AnnotationSource::Cache::Transcript;
 
-use base qw(Bio::EnsEMBL::Variation::Pipeline::DumpVEP::BaseVEP);
+use base qw(Bio::EnsEMBL::Variation::Pipeline::DumpVEP::Dumper);
 
 sub run {
   my $self = shift;

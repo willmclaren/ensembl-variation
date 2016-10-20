@@ -62,7 +62,7 @@ sub run {
     dir => $self->get_cache_dir($vep_params)
   });
 
-  # $self->dump_chrs($as, $cache);
+  $self->dump_chrs($as, $cache);
 
   $self->dump_info($as, $self->get_cache_dir($vep_params));
   

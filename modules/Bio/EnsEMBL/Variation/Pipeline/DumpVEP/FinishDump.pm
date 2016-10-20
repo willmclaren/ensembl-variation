@@ -34,35 +34,37 @@ use warnings;
 
 use base qw(Bio::EnsEMBL::Variation::Pipeline::DumpVEP::BaseVEP);
 
-use File::Path;
-
+use File::Path qw(rmtree);
 
 sub param_defaults {
   return {
-    'species_refseq' => 0,
-    'merged' => 0,
+    'dir_suffix' => '',
   };
 }
 
 sub run {
   my $self = shift;
-  my $refseq = $self->param('species_refseq') ? '_refseq' : '';
-  
-  $self->rm_dirs($refseq);
-  $self->rm_dirs('_merged') if $refseq && $self->param('merged');
-  
+  my $type = $self->param('type');
+
+  if($type eq 'core') {
+    $type = '';
+  }
+  else {
+    $type = '_'.$type;
+  }
+
+  $self->rm_dirs($type);
   return;
 }
 
 sub rm_dirs {
   my $self = shift;
   my $type = shift;
-  $type ||= '';
   
   my $species  = $self->required_param('species');
   my $assembly = $self->required_param('assembly');
-  my $version  = $self->required_param('ensembl_release');
-  my $dir      = $self->required_param('pipeline_dir');
+  my $version  = $self->param('eg_version') || $self->required_param('ensembl_release');
+  my $dir      = $self->required_param('pipeline_dir').$self->param('dir_suffix');
 
   rmtree(
     sprintf(
@@ -78,11 +80,23 @@ sub rm_dirs {
   # remove species dir if empty
   my $species_dir = "$dir/$species$type";
   
-  opendir DIR, $species_dir or return;
-  my @list = grep {!/^\.+$/} readdir DIR;
-  closedir DIR;
+  if(opendir DIR, $species_dir) {
+    my @list = grep {!/^\.+$/} readdir DIR;
+    closedir DIR;
+    
+    rmtree($species_dir) unless scalar @list;
+  }
+
+  # and the same in the dumps/ dir
+  $dir = $self->required_param('pipeline_dir').'/dumps/'.$self->param('dir_suffix');
+  $species_dir = "$dir/$species$type";
   
-  rmtree($species_dir) unless scalar @list;
+  if(opendir DIR, $species_dir) {
+    my @list = grep {!/^\.+$/} readdir DIR;
+    closedir DIR;
+    
+    rmtree($species_dir) unless scalar @list;
+  }
   
   return;
 }

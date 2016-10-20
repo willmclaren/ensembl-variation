@@ -35,13 +35,16 @@ use warnings;
 use Storable qw(nstore_fd);
 use File::Path qw(mkpath);
 
-use base qw(Bio::EnsEMBL::Variation::Pipeline::BaseVariationProcess);
+use base qw(Bio::EnsEMBL::Variation::Pipeline::DumpVEP::BaseVEP);
 
 sub param_defaults {
   return {
     'sift'     => 0,
     'polyphen' => 0,
-    'eg'       => 0,
+    'convert'  => 0,
+    'is_multispecies' => 0,
+    'dir_suffix' => '',
+    'eg_version' => undef,
   };
 }
 
@@ -51,44 +54,18 @@ sub get_vep_params {
   my $params = {};
 
   # basic params
-  $params->{eg}      = $self->param('eg');
+  $params->{dir}     = $self->required_param('pipeline_dir').$self->param('dir_suffix');
   $params->{debug}   = $self->param('debug');
   $params->{species} = $self->required_param('species');
-  $params->{dir}     = $self->required_param('pipeline_dir');
+  $params->{host}    = $self->required_param('host');
+  $params->{port}    = $self->required_param('port');
+  $params->{user}    = $self->required_param('user');
+  $params->{pass}    = $self->required_param('pass') ? $self->required_param('pass') : '';
 
-  $params->{is_multispecies} = 0;
-
-  if($params->{eg}){
-     my $meta_container = Bio::EnsEMBL::Registry->get_adaptor($params->{species},'core','MetaContainer');
-
-     if($meta_container->is_multispecies()==1){
-        my $collection_db=$1 if($meta_container->dbc->dbname()=~/(.+)\_core/);
-        $params->{dir} .= "/".$collection_db;
-        make_path($params->{dir});
-
-        $params->{is_multispecies} = 1;
-     }
-
-     $params->{assembly}   = $meta_container->single_value_by_key('assembly.default');
-     $params->{version}    = $meta_container->schema_version();
-     $params->{eg_version} = $self->param('eg_version');
-     $params->{host}       = $meta_container->dbc->host();
-     $params->{port}       = $meta_container->dbc->port();
-     $params->{user}       = $meta_container->dbc->username();
-     $params->{pass}       = $meta_container->dbc->password() ? $meta_container->dbc->password() : '';
-     $meta_container->dbc()->disconnect_if_idle();
-     
-     $self->param('assembly', $params->{assembly});
-     $self->param('ensembl_release', $params->{version});
-  }
-  else {
-     $params->{assembly} = $self->required_param('assembly');
-     $params->{version}  = $self->required_param('ensembl_release');
-     $params->{host}     = $self->required_param('host');
-     $params->{port}     = $self->required_param('port');
-     $params->{user}     = $self->required_param('user');
-     $params->{pass}     = $self->required_param('pass') ? $self->required_param('pass') : '';
-  }
+  $params->{db_version}      = $self->required_param('db_version');
+  $params->{cache_version}   = $self->param('eg_version') || $self->param('ensembl_release');
+  $params->{assembly}        = $self->required_param('assembly');
+  $params->{is_multispecies} = $self->param('is_multispecies');
 
   # sift, polyphen
   $params->{$_} = 'b' for grep {$self->param($_)} qw(sift polyphen);
@@ -122,7 +99,7 @@ sub get_cache_dir {
     '%s/%s/%s_%s',
     $vep_params->{dir},
     $vep_params->{species}.($vep_params->{refseq} ? '_refseq' : ''),
-    $vep_params->{eg_version} || $vep_params->{version},
+    $vep_params->{cache_version},
     $vep_params->{assembly}
   );
 }

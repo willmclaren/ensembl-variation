@@ -32,6 +32,12 @@ package Bio::EnsEMBL::Variation::Pipeline::DumpVEP::InitDump;
 use strict;
 use warnings;
 
+use File::Path qw(make_path);
+
+use Bio::EnsEMBL::Registry;
+use Bio::EnsEMBL::DBSQL::DBAdaptor;
+use Bio::EnsEMBL::Variation::DBSQL::DBAdaptor;
+
 use base qw(Bio::EnsEMBL::Variation::Pipeline::BaseVariationProcess);
 
 use DBI;
@@ -59,10 +65,59 @@ sub fetch_input {
     push @jobs, @{$self->get_all_jobs_by_server($server)};
   }
 
+  # this will contain the join jobs
+  my $pre_joins = {};
+
   # make some lists
   foreach my $type(qw(core otherfeatures variation regulation)) {
-    $self->param($type, [grep {$_->{type} eq $type} @jobs]);
+    my @type_jobs = grep {$_->{type} eq $type} @jobs;
+    $self->param($type, \@type_jobs);
+
+    for(@type_jobs) {
+      $pre_joins->{$_->{species}}->{$_->{assembly}}->{$_->{type}} = 1;
+      $pre_joins->{$_->{species}}->{$_->{assembly}}->{dir_suffix} = $_->{dir_suffix} || '';
+    }
   }
+
+  # now create the actual join jobs
+  my @join_jobs;
+
+  foreach my $species(keys %$pre_joins) {
+    foreach my $assembly(keys %{$pre_joins->{$species}}) {
+      my %base_job = (
+        species    => $species,
+        assembly   => $assembly,
+        dir_suffix => $pre_joins->{$species}->{$assembly}->{dir_suffix},
+      );
+      
+      map {$base_job{$_} = 1} grep {$pre_joins->{$species}->{$assembly}->{$_}} qw(variation regulation);
+
+      # core job
+      if($pre_joins->{$species}->{$assembly}->{core}) {
+        my %job = %base_job;
+        $job{type} = 'core';
+        push @join_jobs, \%job;
+      }
+
+      # refseq job
+      if($pre_joins->{$species}->{$assembly}->{otherfeatures}) {
+        my %job = %base_job;
+        $job{type} = 'refseq';
+        push @join_jobs, \%job;
+
+        # merge job
+        if($self->param('merged')) {
+          my %job = %base_job;
+          $job{type} = 'merged';
+          push @join_jobs, \%job;
+        }
+      }
+    }
+  }
+
+  $self->param('merges', [grep {$_->{type} eq 'merged'} @join_jobs]);
+
+  $self->param('joins', \@join_jobs);
 
   return;
 }
@@ -70,12 +125,22 @@ sub fetch_input {
 sub write_output {
   my $self = shift;
 
-  # 1 = distribute dumps (not set here)
-  # 2 = normal
+  # distribute
+  $self->dataflow_output_id({}, 1);
+
   $self->dataflow_output_id($self->param('core'), 2);
   $self->dataflow_output_id($self->param('otherfeatures'), 3);
   $self->dataflow_output_id($self->param('variation'), 4);
   $self->dataflow_output_id($self->param('regulation'), 5);
+
+  # merge ens+refseq
+  $self->dataflow_output_id($self->param('merges'), 6);
+
+  # join
+  $self->dataflow_output_id($self->param('joins'), 7);
+
+  # finish (rm dirs)
+  $self->dataflow_output_id($self->param('joins'), 8);
   
   return;
 }
@@ -92,10 +157,10 @@ sub get_all_jobs_by_server {
   
   # connect to DB
   my $dbc = DBI->connect(
-      $connection_string, $server->{user}, $server->{pass}
+    $connection_string, $server->{user}, $server->{pass}
   );
   
-  my $version = $self->required_param('ensembl_release');
+  my $version = $self->param('eg_version') || $self->required_param('ensembl_release');
 
   my $sth = $dbc->prepare(qq{
     SHOW DATABASES LIKE '%\_core\_$version%'
@@ -198,6 +263,8 @@ sub get_all_jobs_by_server {
       
       # do we have a regulation DB?
       my $reg_db_name = $self->has_reg_build($dbc, $current_db_name);
+
+      my $is_multispecies = scalar keys %$species_ids > 1 ? 1 : 0;
       
       foreach $species_id(keys %$species_ids) {
         $sth = $dbc->prepare("SELECT version FROM ".$current_db_name.".coord_system WHERE species_id = ".$species_id." ORDER BY rank LIMIT 1;");
@@ -214,8 +281,10 @@ sub get_all_jobs_by_server {
         my %species_hash = %$server;
         
         $species_hash{species} = $species_ids->{$species_id};
+        $species_hash{species_id} = $species_id;
         $species_hash{assembly} = $assembly;
         $species_hash{dbname} = $current_db_name;
+        $species_hash{is_multispecies} = $is_multispecies;
         
         # do we have SIFT or PolyPhen?
         if($var_db_name) {
@@ -313,6 +382,10 @@ sub get_all_jobs_by_species_hash {
   my $has_reg_db = shift;
   my $group = shift || 'core';
 
+  # clearing the registry prevents a warning when we connect to
+  # mutiple core DBs of the same species (e.g. core, otherfeatures)
+  Bio::EnsEMBL::Registry->clear();
+
   my $dba = Bio::EnsEMBL::DBSQL::DBAdaptor->new(
     -group   => 'core',
     -species => $species_hash->{species},
@@ -321,16 +394,73 @@ sub get_all_jobs_by_species_hash {
     -user    => $species_hash->{user},
     -pass    => $species_hash->{pass},
     -dbname  => $species_hash->{dbname},
+    -MULTISPECIES_DB => $species_hash->{is_multispecies},
+    -species_id => $species_hash->{species_id},
   );
 
-  my $sa = $dba->get_SliceAdaptor;
+  if($self->param('eg')) {
+    my $mca = $dba->get_MetaContainerAdaptor;
 
+    if($mca->is_multispecies == 1) {
+      my $collection_db = $1 if($mca->dbc->dbname()=~/(.+)\_core/);
+      $species_hash->{dir_suffix} = "/".$collection_db;
+    }
+
+    $species_hash->{assembly}   = $mca->single_value_by_key('assembly.default');
+    $species_hash->{db_version} = $mca->schema_version();
+  }
+  else {
+    $species_hash->{db_version} = $self->param('ensembl_release');
+  }
+
+  # get slices
+  my $sa = $dba->get_SliceAdaptor;
   my @slices = @{$sa->fetch_all('toplevel')};
   push @slices, map {$_->alternate_slice} map {@{$_->get_all_AssemblyExceptionFeatures}} @slices;
   push @slices, @{$sa->fetch_all('lrg', undef, 1, undef, 1)} if $self->param('lrg');
 
-  my @jobs;
+  # remove/sort out duplicates, in human you get 3 Y slices
+  my %by_name;
+  $by_name{$_->seq_region_name}++ for @slices;
+  if(my @to_fix = grep {$by_name{$_} > 1} keys %by_name) {
 
+    foreach my $name(@to_fix) {
+
+      # remove those with duplicate name
+      @slices = grep {$_->seq_region_name ne $name} @slices;
+
+      # add a standard-fetched slice
+      push @slices, $sa->fetch_by_region(undef, $name);
+    }
+  }
+
+  # dumps synonyms
+  make_path($self->param('pipeline_dir').'/synonyms');
+
+  open SYN, sprintf(
+    ">%s/synonyms/%s_%s_chr_synonyms.txt",
+    $self->param('pipeline_dir'),
+    $species_hash->{species},
+    $species_hash->{assembly}
+  ) or die "ERROR: Could not write to synonyms file\n";
+
+  foreach my $slice(@slices) {
+    print SYN $slice->seq_region_name."\t".$_->name."\n" for @{$slice->get_all_synonyms};
+    delete($slice->{synonym});
+  }
+  close SYN;
+
+  # remove slices with no transcripts or variants on them
+  # otherwise the dumper will create a load of "empty" cache files
+  # in species with lots of unplaced scaffolds this means we create
+  # masses of pointless directories which take ages to process
+  my $ta = $dba->get_TranscriptAdaptor();
+  @slices = grep {$ta->count_all_by_Slice($_) || $self->count_vars($has_var_db, $species_hash, $_)} @slices;
+  delete($self->{_var_dba}) if $self->{_var_dba};
+
+  # now distribute the slices into jobs
+  # jobs can contain multiple slices
+  my @jobs;
   my $min_length = 10e6;
   my $added_length = 0;
   my %hash;
@@ -364,6 +494,39 @@ sub get_all_jobs_by_species_hash {
   @jobs = sort {$a->{type} cmp $b->{type} || $b->{added_length} <=> $b->{added_length}} @jobs;
 
   return \@jobs;
+}
+
+sub count_vars {
+  my $self = shift;
+  my $var_db_name = shift;
+  my $species_hash = shift;
+  my $slice = shift;
+
+  return 0 unless $var_db_name;
+
+  if(!exists($self->{_var_dba})) {
+    $self->{_var_dba} = Bio::EnsEMBL::Variation::DBSQL::DBAdaptor->new(
+      -group   => 'variation',
+      -species => $species_hash->{species},
+      -port    => $species_hash->{port},
+      -host    => $species_hash->{host},
+      -user    => $species_hash->{user},
+      -pass    => $species_hash->{pass},
+      -dbname  => $var_db_name,
+      -MULTISPECIES_DB => $species_hash->{is_multispecies},
+      -species_id => $species_hash->{species_id},
+    );
+  }
+
+  my $sth = $self->{_var_dba}->dbc->prepare("SELECT COUNT(*) FROM variation_feature WHERE seq_region_id = ?");
+  $sth->execute($slice->get_seq_region_id);
+
+  my $v_count;
+  $sth->bind_columns(\$v_count);
+  $sth->fetch;
+  $sth->finish;
+
+  return $v_count;
 }
 
 sub add_to_jobs {

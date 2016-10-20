@@ -32,62 +32,120 @@ package Bio::EnsEMBL::Variation::Pipeline::DumpVEP::MergeVEP;
 use strict;
 use warnings;
 
-use base qw(Bio::EnsEMBL::Variation::Pipeline::DumpVEP::BaseVEP);
+use File::Path qw(make_path rmtree);
+use Storable qw(nstore_fd fd_retrieve);
 
+use base qw(Bio::EnsEMBL::Variation::Pipeline::DumpVEP::BaseVEP);
 
 sub param_defaults {
   return {
-    'overwrite' => 0,
+    'variation'  => 0,
+    'regulation' => 0,
+    'dir_suffix' => '',
+    'convert'    => 0,
   };
 }
 
 sub run {
   my $self = shift;
+
+  my $data_dir = $self->param('pipeline_dir').$self->param('dir_suffix');
+
+  # do merging
+  my $ens_root = $data_dir.'/'.$self->species_suffix;
+  my $ref_root = $data_dir.'/'.$self->refseq_species_suffix;
+  my $mrg_root = $data_dir.'/'.$self->merged_species_suffix;
   
-  # basic params
-  my $debug    = $self->param('debug');
-  my $species  = $self->required_param('species');
-  my $assembly = $self->required_param('assembly');
-  my $version  = $self->required_param('ensembl_release');
-  my $dir      = $self->required_param('pipeline_dir');
+  # clear any previous existing dir
+  rmtree($mrg_root);
+
+  opendir ENSROOT, $ens_root;
+  opendir REFROOT, $ref_root;
+
+  # list chromosomes
+  my %ens_chrs = map {$_ => 1} grep {-d $ens_root.'/'.$_ && !/^\./} readdir ENSROOT;
+  my %ref_chrs = map {$_ => 1} grep {-d $ref_root.'/'.$_ && !/^\./} readdir REFROOT;
+
+  closedir ENSROOT;
+  closedir REFROOT;
+
+  # mkdirs
+  my %mrg_chrs = map {$_ => 1} (keys %ens_chrs, keys %ref_chrs);
+
+  foreach my $chr(keys %mrg_chrs) {
+    make_path($mrg_root.'/'.$chr);
   
-  # cmnd line
-  my $perl    = $self->required_param('perl_command');
-  my $mrg_cmd = $self->required_param('ensembl_cvs_root_dir').'/ensembl-variation/scripts/misc/merge_vep_caches.pl';
-  
-  # construct command
-  my $cmd = sprintf(
-    '%s %s --species %s --version %s_%s --dir %s',
-    $perl,
-    $mrg_cmd,
+    # exists in both
+    if(-d $ens_root.'/'.$chr && -d $ref_root.'/'.$chr) {
+      opendir ENSCHR, $ens_root.'/'.$chr;
+      opendir REFCHR, $ref_root.'/'.$chr;
     
-    $species,
-    $version,
-    $assembly,
-    $dir,
-  );
-  
-  my $finished = 0;
-  
-  if($debug) {
-    print STDERR "$cmd\n";
-  }
-  else {
-    open CMD, "$cmd 2>&1 |" or die "ERROR: Failed to run command $cmd";
-    my @buffer;
-    while(<CMD>) {
-      $finished = 1 if /Finished/;
-      push @buffer, $_;
-      shift @buffer if scalar @buffer > 5;
+      my %ens_files = map {$_ => 1} grep {/\d+\.gz$/} readdir ENSCHR;
+      my %ref_files = map {$_ => 1} grep {/\d+\.gz$/} readdir REFCHR;
+    
+      closedir ENSCHR;
+      closedir REFCHR;
+    
+      my %mrg_files = map {$_ => 1} (keys %ens_files, keys %ref_files);
+    
+      foreach my $file(keys %mrg_files) {
+      
+        # exists in both, need to concatenate
+        if(-e $ens_root.'/'.$chr.'/'.$file && -e $ref_root.'/'.$chr.'/'.$file) {
+
+          # read in Ensembl cache
+          open my $ens_fh, "gzip -dc ".$ens_root.'/'.$chr.'/'.$file." |";
+          my $ens_cache;
+          $ens_cache = fd_retrieve($ens_fh);
+          close $ens_fh;
+        
+          # add a flag to each transcript indicating which cache it came from
+          $_->{_source_cache} = 'Ensembl' for @{$ens_cache->{$chr}};
+        
+          # do same for RefSeq
+          open my $ref_fh, "gzip -dc ".$ref_root.'/'.$chr.'/'.$file." |";
+          my $ref_cache;
+          $ref_cache = fd_retrieve($ref_fh);
+          close $ref_fh;
+          $_->{_source_cache} = 'RefSeq' for @{$ref_cache->{$chr}};
+        
+          # merge and sort transcript lists
+          my $mrg_cache;
+          @{$mrg_cache->{$chr}} = sort {$a->{start} <=> $b->{start}} (@{$ens_cache->{$chr}}, @{$ref_cache->{$chr}});
+        
+          # dump to new file
+          open my $mrg_fh, "| gzip -9 -c > ".$mrg_root.'/'.$chr.'/'.$file or die "ERROR: Could not write to dump file";
+          nstore_fd($mrg_cache, $mrg_fh);
+          close $mrg_fh;
+        }
+      
+        # otherwise simply copy/link
+        else {
+          my $root = -e $ens_root.'/'.$chr.'/'.$file ? $ens_root : $ref_root;
+          $self->link_file($root.'/'.$chr.'/'.$file, $mrg_root.'/'.$chr.'/'.$file);
+        }
+      }
     }
-    close CMD;
   
-    die "ERROR: Encountered an error running merge script\n".join("", @buffer)."\n" unless $finished;
-  
-    $self->tar('merged');
+    # only exists in one, simply copy all files
+    else {
+      my $root = -d $ens_root.'/'.$chr ? $ens_root : $ref_root;
+    
+      opendir CHR, $root.'/'.$chr;
+      $self->link_file($root.'/'.$chr.'/'.$_, $mrg_root.'/'.$chr.'/'.$_) for grep {!/^\./} readdir CHR;
+      closedir CHR;
+    }
   }
-  
-  return;
+
+  unlink($mrg_root.'/info.txt_core');
+  $self->run_cmd(
+    sprintf(
+      'cat %s %s | sort -u >> %s',
+      $ens_root.'/info.txt_core',
+      $ref_root.'/info.txt_core',
+      $mrg_root.'/info.txt_core'
+    )
+  );
 }
 
 

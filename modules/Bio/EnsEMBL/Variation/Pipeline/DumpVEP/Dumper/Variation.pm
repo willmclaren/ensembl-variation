@@ -32,6 +32,8 @@ package Bio::EnsEMBL::Variation::Pipeline::DumpVEP::Dumper::Variation;
 use strict;
 use warnings;
 
+use FileHandle;
+
 use Bio::EnsEMBL::VEP::Config;
 use Bio::EnsEMBL::VEP::AnnotationSource::Database::Variation;
 use Bio::EnsEMBL::VEP::AnnotationSource::Cache::Variation;
@@ -53,6 +55,10 @@ sub run {
   my $self = shift;
 
   my $vep_params = $self->get_vep_params();
+
+  # make sure to include failed variants!
+  $vep_params->{failed} = 1;
+
   my $config = Bio::EnsEMBL::VEP::Config->new($vep_params);
 
   my $region_size = $self->param('region_size');
@@ -81,10 +87,39 @@ sub run {
     $self->{freq_vcf} = $vep_params->{freq_vcf};
   }
 
-  # get pubmed data
+  # precache pubmed data
   $self->pubmed($as);
 
-  # $self->dump_chrs($as, $cache);
+  $self->dump_chrs($as, $cache);
+
+  # bgzip and tabix-index all_vars files
+  if($self->param('convert')) {
+    my $root = $self->get_cache_dir($vep_params);
+
+    # need to find which column is start
+    my @cols = @{$as->get_cache_columns()};
+    my %indexes = map {$cols[$_] => $_} 0..$#cols;
+    die("Cannot determine start column for indexing\n") unless defined($indexes{start});
+
+    # add 2, 1 to correct for 0->1 indexing, 1 because we've added a chr column
+    my $start_i = $indexes{start} + 2;
+
+    foreach my $chr(keys %{{map {$_->{chr} => 1} @{$self->param('regions')}}}) {
+
+      next unless -e "$root/$chr/all_vars";
+
+      $self->run_cmd(
+        sprintf(
+          "sort -k%i,%in %s/%s/all_vars | bgzip -c > %s/%s/all_vars.gz",
+          $start_i, $start_i, $root, $chr, $root, $chr
+        )
+      );
+
+      $self->run_cmd("tabix -s 1 -b $start_i -e $start_i $root/$chr/all_vars.gz");
+
+      unlink("$root/$chr/all_vars");
+    }
+  }
 
   $self->dump_info($as, $self->get_cache_dir($vep_params));
   
@@ -104,8 +139,37 @@ sub dump_info {
     "variation_cols\t".
     join(",",
       @{$as->get_cache_columns()},
+      'pubmed',
       map {@{$_->{prefixed_pops} || $_->{pops}}} @{$self->{freq_vcf} || []}
     )."\n";
+
+  my $info = $as->info;
+  print OUT "source_$_\t".$info->{$_}."\n" for keys %$info;
+
+  close OUT;
+
+  $self->dump_info_converted($as, $dir) if $self->param('convert');
+}
+
+sub dump_info_converted {
+  my ($self, $as, $dir) = @_;
+
+  my $info_file = $dir.'/info.txt_variation_converted';
+  return if -e $info_file;
+
+  open OUT, ">$info_file";
+
+  # var cache cols
+  print OUT
+    "variation_cols\t".
+    join(",",
+      'chr',
+      @{$as->get_cache_columns()},
+      'pubmed',
+      map {@{$_->{prefixed_pops} || $_->{pops}}} @{$self->{freq_vcf} || []}
+    )."\n";
+
+  print OUT "var_type\ttabix\n";
 
   my $info = $as->info;
   print OUT "source_$_\t".$info->{$_}."\n" for keys %$info;
@@ -122,6 +186,16 @@ sub dump_obj {
   my ($self, $obj, $file, $chr) = @_;
 
   open DUMP, "| gzip -9 -c > ".$file or die "ERROR: Could not write to dump file $file\n";
+
+  my $all_vars_fh;
+  if($self->param('convert')) {
+    my $all_vars_file = $file;
+    $all_vars_file =~ s/[^\/]+?$//;
+    $all_vars_file .= 'all_vars';
+
+    $all_vars_fh = FileHandle->new();
+    $all_vars_fh->open(">>$all_vars_file") or die $!;
+  }
 
   # get freqs from VCFs?
   $self->freqs_from_vcf($obj, $chr) if $self->{freq_vcf};
@@ -153,6 +227,11 @@ sub dump_obj {
 
     print DUMP join(" ", @tmp);
     print DUMP "\n";
+
+    if($all_vars_fh) {
+      print $all_vars_fh join("\t", $chr, map {$_ eq '' ? '.' : $_} @tmp);
+      print $all_vars_fh "\n";
+    }
   }
 
   close DUMP;
@@ -343,8 +422,12 @@ sub pubmed {
     );
     my $lock = $file.'.lock';
 
+    my $sleep_count = 0;
     if(-e $lock) {
-      while(-e $lock) { sleep 1; }
+      while(-e $lock) {
+        sleep 1;
+        die("I've been waiting for $lock to be removed for $sleep_count seconds, something may have gone wrong\n") if ++$sleep_count > 900;
+      }
     }
 
     if(-e $file) {
@@ -397,7 +480,7 @@ sub pubmed {
 }
 
 sub DESTROY {
-  unlink($_[0]->{_lock_file});
+  unlink($_[0]->{_lock_file}) if $_[0]->{_lock_file};
 }
 
 1;

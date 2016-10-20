@@ -57,8 +57,6 @@ sub default_options {
     hive_no_init => 0,
     
     # the location of your checkout of the ensembl API (the hive looks for SQL files here)
-    # this pipeline requires you have ensembl-variation and ensembl-tools in this dir as
-    ensembl_cvs_root_dir    => $ENV{'HOME'} . '/src',
     hive_root_dir           => $ENV{'HOME'} . '/src/ensembl-hive', 
     
     # a name for your pipeline (will also be used in the name of the hive database)    
@@ -76,9 +74,16 @@ sub default_options {
 
     # contains frequency data
     data_dir                => '/nfs/panda/ensembl/wm2/vep_data',
-
         
     # specify which servers to scan for databases to dump
+    # dump_servers => [
+    #   {
+    #     host => 'mysql-eg-staging-2',
+    #     port => 4275,
+    #     user => 'ensro',
+    #     pass => $self->o('dump_db_password'),
+    #   },
+    # ],
     dump_servers => [
       {
         host => 'mysql-ensembl-mirror.ebi.ac.uk',
@@ -90,6 +95,7 @@ sub default_options {
     
     # dump databases of this version number
     ensembl_release => undef,
+    eg_version => undef,
     
     # add refseq, merged dumps?
     refseq => 1,
@@ -110,6 +116,9 @@ sub default_options {
 
     # include LRGs in dumps
     lrg => 1,
+
+    # ensembl genomes flag
+    eg => 0,
 
     # don't change this unless you know what you're doing!!!
     region_size => 1e6,
@@ -209,13 +218,10 @@ sub pipeline_analyses {
 
   my @common_params = map {$_ => $self->o($_) || undef} qw(
     ensembl_release
-    ensembl_cvs_root_dir
+    eg_version
+    eg
     pipeline_dir
-    refseq
-    merged
-    convert
     debug
-    lrg
     region_size
   );
    
@@ -227,11 +233,13 @@ sub pipeline_analyses {
         include_pattern => $self->o('include_pattern'),
         exclude_pattern => $self->o('exclude_pattern'),
         dump_servers    => $self->o('dump_servers'),
+        refseq          => $self->o('refseq'),
+        merged          => $self->o('merged'),
+        lrg             => $self->o('lrg'),
         @common_params
       },
       -input_ids     => [{}],
       -rc_name       => 'default',
-      -meadow_type   => 'LOCAL',
       -hive_capacity => 1,
       -flow_into     => {
         # 1 = distribute dumps (not set here)
@@ -241,20 +249,19 @@ sub pipeline_analyses {
         # 4 = variation
         # 5 = regulation
 
-        # 6 = all (finish_dump)
-        # 7 = all refseqs (merge)
-        # 8 = var (convert)
+        # 6 = join
+        # 7 = finish
 
-        # '1' => $self->o('debug') ? [] : ['distribute_dumps'],
+        '1' => $self->o('debug') ? [] : ['distribute_dumps'],
 
         '2' => ['dump_vep_core'],
         '3' => ['dump_vep_otherfeatures'],
         '4' => ['dump_vep_variation'],
         '5' => ['dump_vep_regulation'],
 
-        # '6' => $self->o('debug') ? [] : ['finish_dump'],
-        # '7' => ['merge_vep'],
-        # '8' => ['convert_vep'],
+        '6' => ['merge_vep'],
+        '7' => ['join_vep'],
+        '8' => $self->o('debug') ? [] : ['finish_dump'],
       },
     },
 
@@ -286,6 +293,7 @@ sub pipeline_analyses {
       -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::Dumper::Variation',
       -parameters    => {
         species_flags  => $self->o('species_flags'),
+        convert        => $self->o('convert'),
         @common_params
       },
       -rc_name       => 'default',
@@ -304,49 +312,58 @@ sub pipeline_analyses {
       -can_be_empty   => 1,
     },
 
+    {
+      -logic_name    => 'merge_vep',
+      -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::MergeVEP',
+      -parameters    => {
+        @common_params
+      },
+      -wait_for      => ['dump_vep_core', 'dump_vep_otherfeatures'],
+      -analysis_capacity => 20,
+      -rc_name       => 'default',
+      -failed_job_tolerance => 0,
+      -can_be_empty   => 1,
+    },
 
-    ## post processing analyses
-  #   {
-  #     -logic_name    => 'merge_vep',
-  #     -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::MergeVEP',
-  #     -parameters    => { @common_params },
-  #     -wait_for      => ['dump_vep_refseq', 'dump_vep_refseq_highmem'],
-  #     -analysis_capacity => 10,
-  #   },
-  #   {
-  #     -logic_name    => 'convert_vep',
-  #     -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::ConvertVEP',
-  #     -parameters    => { @common_params },
-  #     -wait_for      => ['merge_vep'],
-  #     -analysis_capacity => 10,
-  #   }
+    {
+      -logic_name    => 'join_vep',
+      -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::JoinVEP',
+      -parameters    => {
+        convert => $self->o('convert'),
+        @common_params
+      },
+      -wait_for      => ['dump_vep_core', 'dump_vep_otherfeatures', 'dump_vep_variation', 'dump_vep_regulation', 'merge_vep'],
+      -analysis_capacity => 20,
+      -rc_name       => 'default',
+      -failed_job_tolerance => 0,
+    },
   );
 
-  # if (!$self->o('debug')) {  
-  #   push @analyses, (
-  #     # {
-  #     #   -logic_name => 'finish_dump',
-  #     #   -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::FinishDump',
-  #     #   -parameters => { @common_params },
-  #     #   -wait_for   => ['convert_vep'],
-  #     # },
-  #     {
-  #       -logic_name => 'distribute_dumps',
-  #       -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::DistributeDumps',
-  #       -parameters => { @common_params },
-  #       # -wait_for   => ['finish_dump'],
-  #       -flow_into   => $self->o('qc') ? ['qc_dumps'] : [],
-  #     },
-  #   );
-  #   # if ($self->o('qc')) {
-  #   #   push @analyses, 
-  #   #     {
-  #   #       -logic_name => 'qc_dumps',
-  #   #       -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::QC',
-  #   #       -parameters => {  @common_params },
-  #   #     };
-  #   # }
-  # } # end if not debug
+  if (!$self->o('debug')) {  
+    push @analyses, (
+      {
+        -logic_name => 'finish_dump',
+        -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::FinishDump',
+        -parameters => { @common_params },
+        -wait_for   => ['join_vep'],
+      },
+      {
+        -logic_name => 'distribute_dumps',
+        -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::DistributeDumps',
+        -parameters => { @common_params },
+        -wait_for   => ['join_vep'],
+      },
+    );
+    # if ($self->o('qc')) {
+    #   push @analyses, 
+    #     {
+    #       -logic_name => 'qc_dumps',
+    #       -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::QC',
+    #       -parameters => {  @common_params },
+    #       -wait_for   => ['join_vep'],
+    #     };
+    # }
+  } # end if not debug
   return \@analyses;
 }
 

@@ -47,6 +47,8 @@ sub run {
     uniprot
   );
 
+  $vep_params->{'core_type'} = 'otherfeatures';
+
   my $config = Bio::EnsEMBL::VEP::Config->new($vep_params);
 
   my $region_size = $self->param('region_size');
@@ -64,7 +66,7 @@ sub run {
     dir => $self->get_cache_dir($vep_params)
   });
 
-  # $self->dump_chrs($as, $cache);
+  $self->dump_chrs($as, $cache);
 
   $self->dump_info($as, $self->get_cache_dir($vep_params));
   

@@ -69,7 +69,7 @@ sub run {
     dir => $self->get_cache_dir($vep_params)
   });
 
-  # $self->dump_chrs($as, $cache);
+  $self->dump_chrs($as, $cache);
 
   $self->dump_info($as, $self->get_cache_dir($vep_params));
   
@@ -103,8 +103,15 @@ sub get_dumpable_object {
   };
 
   if(my $tr = $obj->{$chr}->[0]) {
+    $DB::single = 1;
     delete $tr->{slice}->{adaptor};
     delete $tr->{slice}->{coord_system}->{adaptor};
+
+    # clean introns, they may have a rev-strand slice attached
+    if(my ($intron) = @{$tr->{_variation_effect_feature_cache}->{introns}}) {
+      delete $intron->{slice}->{adaptor};
+      delete $intron->{slice}->{coord_system}->{adaptor};
+    }
   }
 
   return $obj;
@@ -116,6 +123,11 @@ sub post_dump {
   if(my $tr = $obj->{$chr}->[0]) {
     $tr->{slice}->{adaptor} = $as->get_adaptor('core', 'slice');
     $tr->{slice}->{coord_system}->{adaptor} = $as->get_adaptor('core', 'coordsytem');
+
+    if(my ($intron) = @{$tr->{_variation_effect_feature_cache}->{introns}}) {
+      $intron->{slice}->{adaptor} = $as->get_adaptor('core', 'slice');;
+      $intron->{slice}->{coord_system}->{adaptor} = $as->get_adaptor('core', 'slice');;
+    }
   }
 }
 

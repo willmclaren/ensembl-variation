@@ -41,7 +41,7 @@ use File::Spec;
 sub run {
   my $self = shift;
   my $version = $self->required_param('ensembl_release');
-  my $dir = $self->required_param('pipeline_dir');
+  my $dir = $self->required_param('pipeline_dir').'/dumps';
 
   foreach my $folder (qw/web production rest/) {
     make_path("$dir/$folder") if (!-d "$dir/$folder");
@@ -49,11 +49,13 @@ sub run {
 
   # rest
   foreach my $assembly (qw/GRCh37 GRCh38/) {
-    my $file = "homo_sapiens_vep_$version\_$assembly\_tabixconverted.tar.gz";
-    if (-e "$dir/$file") {
-      run_cmd("ln $dir/$file $dir/rest");
-    } else {
-      $self->warning("$file doesn't exist");
+    foreach my $suffix('', qw(_refseq _merged)) {
+      my $file = "homo_sapiens$suffix\_vep_$version\_$assembly\_tabixconverted.tar.gz";
+      if (-e "$dir/$file") {
+        $self->link_file("$dir/$file", "$dir/rest/$file");
+      } else {
+        $self->warning("$file doesn't exist");
+      }
     }
   }
 
@@ -61,8 +63,8 @@ sub run {
   opendir (DIR, $dir) or die $!;
   while (my $file = readdir(DIR)) {
     if ($file =~ /gz$/ && $file !~ /tabix/) {
-      run_cmd("ln $dir/$file $dir/production/");
-      run_cmd("ln $dir/$file $dir/web/");
+      $self->link_file("$dir/$file", "$dir/production/$file");
+      $self->link_file("$dir/$file", "$dir/web/$file");
     }
   }
   closedir (DIR) or die $!;
@@ -72,14 +74,12 @@ sub run {
     if ($file =~ /tabix/) {
       my $file_no_tabix = $file;
       $file_no_tabix =~ s/\_tabixconverted//;
-      run_cmd("rm $dir/web/$file_no_tabix");  
-      run_cmd("ln $dir/$file $dir/web/$file_no_tabix");  
+      $self->link_file("$dir/$file", "$dir/web/$file_no_tabix");
     }
   }
   closedir (DIR) or die $!;
 
   compute_checksums("$dir/production/");
-
 }
 
 sub compute_checksums {
@@ -101,14 +101,6 @@ sub compute_checksums {
     print $fh $line, "\n";
   }
   $fh->close();
-}
-
-sub run_cmd {
-  my $cmd = shift;
-  if (my $return_value = system($cmd)) {
-    $return_value >>= 8;
-    die "system($cmd) failed: $return_value";
-  }
 }
 
 sub checksum {

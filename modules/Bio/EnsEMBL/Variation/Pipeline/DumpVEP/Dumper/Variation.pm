@@ -147,6 +147,10 @@ sub dump_info {
   my $info = $as->info;
   print OUT "source_$_\t".$info->{$_}."\n" for keys %$info;
 
+  printf OUT "source_%s\t%s\n", $_->{name}, $_->{version} for
+    grep {defined($_->{name}) && defined($_->{version})}
+    @{$self->{freq_vcf} || []};
+  
   close OUT;
 
   $self->dump_info_converted($as, $dir) if $self->param('convert');

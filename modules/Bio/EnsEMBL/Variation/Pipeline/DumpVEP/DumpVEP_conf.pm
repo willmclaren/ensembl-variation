@@ -135,16 +135,21 @@ sub default_options {
             freq_vcf => [
               {
                 file => $self->o('data_dir').'/1KG.phase3.GRCh37.vcf.gz',
-                pops => [qw(AFR AMR EAS EUR SAS)]
+                pops => [qw(AFR AMR EAS EUR SAS)],
+                name => '1000genomes',
+                version => 'phase3'
               },
               {
                 file => $self->o('data_dir').'/ESP.GRCh37.vcf.gz',
-                pops => [qw(AA EA)]
+                pops => [qw(AA EA)],
+                name => 'ESP',
               },
               {
                 file => $self->o('data_dir').'/ExAC.0.3.GRCh37.vcf.gz',
                 pops => ['', qw(AFR AMR Adj EAS FIN NFE OTH SAS)],
+                name => 'ExAC',
                 prefix => 'ExAC',
+                version => 0.3,
               },
             ],
           },
@@ -152,16 +157,21 @@ sub default_options {
             freq_vcf => [
               {
                 file => $self->o('data_dir').'/1KG.phase3.GRCh38.vcf.gz',
-                pops => [qw(AFR AMR EAS EUR SAS)]
+                pops => [qw(AFR AMR EAS EUR SAS)],
+                name => '1000genomes',
+                version => 'phase3'
               },
               {
                 file => $self->o('data_dir').'/ESP.GRCh38.vcf.gz',
-                pops => [qw(AA EA)]
+                pops => [qw(AA EA)],
+                name => 'ESP',
               },
               {
                 file => $self->o('data_dir').'/ExAC.0.3.GRCh38.vcf.gz',
                 pops => ['', qw(AFR AMR Adj EAS FIN NFE OTH SAS)],
+                name => 'ExAC',
                 prefix => 'ExAC',
+                version => 0.3,
               },
             ],
           },

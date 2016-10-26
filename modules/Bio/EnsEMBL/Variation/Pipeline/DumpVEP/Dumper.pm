@@ -128,6 +128,7 @@ sub dump_chrs {
     my $first = 1;
 
     while($s <= $l) {
+      # if($s != 89) { $s++; next; }
       my $obj = $self->get_dumpable_object($db_as, $sr, $chr, $s);
       my $file = $cache_as->get_dump_file_name($chr, ($s  * $region_size) + 1, ($s + 1) * $region_size);
 

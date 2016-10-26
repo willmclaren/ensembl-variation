@@ -48,7 +48,7 @@ sub run_cmd {
 sub link_dir_contents {
   my ($self, $source_dir, $target_dir, $core, $var, $reg) = @_;
 
-  opendir SOURCE, $source_dir;
+  opendir SOURCE, $source_dir or die $!;
   my @chrs = grep {$_ !~ /^\./ && -d $source_dir.'/'.$_} readdir(SOURCE);
 
   foreach my $chr(@chrs) {

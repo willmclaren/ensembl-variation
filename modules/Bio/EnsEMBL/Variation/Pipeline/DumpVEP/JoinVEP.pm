@@ -91,8 +91,13 @@ sub core {
   );
 
   # converted?
-  $self->create_converted_version($source_dir, $target_dir, $self->param('species'), $self->species_suffix)
-    if $self->param('convert') && $var;
+  $self->create_converted_version(
+    $source_dir,
+    $target_dir,
+    $source_dir,
+    $self->param('species'),
+    $self->species_suffix
+  ) if $self->param('convert') && $var;
 
   rmtree($target_dir);
 }
@@ -159,8 +164,13 @@ sub _base_refseq_merged {
   );
 
   # converted?
-  $self->create_converted_version($source_dir, $target_dir, $self->param('species').'_'.$type, $self->$suffix_method_name)
-    if $self->param('convert') && $var;
+  $self->create_converted_version(
+    $source_dir,
+    $target_dir,
+    $self->data_dir.'/'.$self->$suffix_method_name,
+    $self->param('species').'_'.$type,
+    $self->$suffix_method_name
+  ) if $self->param('convert') && $var;
 
   rmtree($target_dir);
 }
@@ -179,7 +189,7 @@ sub clear_var_files {
 }
 
 sub create_converted_version {
-  my ($self, $source_dir, $target_dir, $species, $suffix) = @_;
+  my ($self, $source_dir, $target_dir, $info_dir, $species, $suffix) = @_;
 
   # clear the per-MB var files
   $self->clear_var_files($target_dir);
@@ -189,13 +199,24 @@ sub create_converted_version {
 
   # create info file
   unlink($target_dir.'/info.txt');
+
+  # $info_dir is the core-type info.txt, this might be different for _refseq and _merged caches
+  $self->run_cmd(
+    sprintf(
+      'cat %s >> %s',
+      $info_dir.'/info.txt_core',
+      $target_dir.'/info.txt'
+    )
+  );
+
+  # get the other info bits from the core dir
   $self->run_cmd(
     sprintf(
       'cat %s >> %s',
       $source_dir.'/info.txt_'.$_,
       $target_dir.'/info.txt'
     )
-  ) for ('core', 'variation_converted', grep {$self->param($_)} qw(regulation));
+  ) for ('variation_converted', grep {$self->param($_)} qw(regulation));
 
   # create tar
   $self->tar(
@@ -212,18 +233,22 @@ sub tar {
 
   $mod ||= '';
 
+  my $tar_file = sprintf(
+    '%s/%s_vep_%i_%s%s.tar.gz',
+    $dir,
+    $species,
+    $self->param('eg_version') || $self->param('ensembl_release'),
+    $assembly,
+    $mod,
+  );
+
+  unlink($tar_file);
+
   $self->run_cmd(
     sprintf(
-      'tar -cz -C %s -f %s/%s_vep_%i_%s%s.tar.gz %s',
-      
+      'tar -cz -C %s -f %s %s',
       $dir,
-      
-      $dir,
-      $species,
-      $self->param('eg_version') || $self->param('ensembl_release'),
-      $assembly,
-      $mod,
-
+      $tar_file,
       $suffix
     )
   );

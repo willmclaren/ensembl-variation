@@ -369,7 +369,8 @@ sub freqs_from_vcf {
               my $store_name = $prefix.$pop;
               $store_name =~ s/\_$//;
 
-              if(my $f = $info->{$info_prefix.'AF'.$info_suffix}) {
+              if(exists($info->{$info_prefix.'AF'.$info_suffix})) {
+                my $f = $info->{$info_prefix.'AF'.$info_suffix};
                 my @split = split(',', $f);
 
                 # there will be one item in @split for each of the original alts
@@ -380,8 +381,8 @@ sub freqs_from_vcf {
                   @sorted_alt_indexes
                 );
               }
-              elsif(my $c = $info->{$info_prefix.'AC'.$info_suffix}) {
-                
+              elsif(exists($info->{$info_prefix.'AC'.$info_suffix})) {
+                my $c = $info->{$info_prefix.'AC'.$info_suffix};
                 my $n = $info->{$info_prefix.'AN'.$info_suffix};
                 my @split = split(',', $c);
 

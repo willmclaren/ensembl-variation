@@ -200,15 +200,9 @@ sub get_all_jobs_by_server {
   foreach my $current_db_name (@dbs) {
     
     # special case otherfeatures
-    # check it has refseq transcripts
     if($current_db_name =~ /otherfeatures/) {
-    
-      # get assembly name
-      $sth = $dbc->prepare("SELECT version FROM ".$current_db_name.".coord_system ORDER BY rank LIMIT 1;");
-      $sth->execute();
-      my $assembly = $sth->fetchall_arrayref()->[0]->[0];
-      die("ERROR: Could not get assembly name from meta table for $current_db_name\n") unless $assembly;
-      
+
+      # check it has refseq transcripts
       $sth = $dbc->prepare(qq{
         SELECT COUNT(*)
         FROM $current_db_name\.transcript
@@ -221,23 +215,26 @@ sub get_all_jobs_by_server {
       $sth->bind_columns(\$count);
       $sth->fetch;
       $sth->finish();
+      next unless $count;
+
+      my $species_ids = $self->get_species_id_hash($dbc, $current_db_name);
       
-      if($count) {
-        
-        my $species = $current_db_name;
-        $species =~ s/^([a-z]+\_[a-z,1-9]+)(\_[a-z]+)?(.+)/$1$2/;
-        $species =~ s/\_otherfeatures$//;
-        
+      foreach my $species_id(keys %$species_ids) {
+        my $assembly = $self->get_assembly($dbc, $current_db_name, $species_id);
+        next unless $assembly;
+
         # copy server details
         my %species_hash = %$server;
       
-        $species_hash{species} = $species;
+        $species_hash{species} = $species_ids->{$species_id};
+        $species_hash{species_id} = $species_id;
         $species_hash{assembly} = $assembly;
         $species_hash{dbname} = $current_db_name;
+        $species_hash{is_multispecies} = scalar keys %$species_ids > 1 ? 1 : 0;
 
         # do we have SIFT or PolyPhen?
         if(my $var_db_name = $self->has_var_db($dbc, $current_db_name)) {
-          my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name);
+          my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name, $species_id);
           $species_hash{$_} = $has_sift_poly->{$_} for keys %$has_sift_poly;
         }
 
@@ -246,17 +243,7 @@ sub get_all_jobs_by_server {
     }
     
     else {
-      # get assembly and species names
-      $sth = $dbc->prepare("select species_id, meta_value from ".$current_db_name.".meta where meta_key = 'species.production_name';");
-      $sth->execute();
-      
-      my ($species_id, $value, $species_ids);
-      $sth->bind_columns(\$species_id, \$value);
-      
-      $species_ids->{$species_id} = $value while $sth->fetch();
-      $sth->finish();
-      
-      my $count = 0;
+      my $species_ids = $self->get_species_id_hash($dbc, $current_db_name);
       
       # do we have a variation DB?
       my $var_db_name = $self->has_var_db($dbc, $current_db_name);
@@ -264,17 +251,10 @@ sub get_all_jobs_by_server {
       # do we have a regulation DB?
       my $reg_db_name = $self->has_reg_build($dbc, $current_db_name);
 
-      my $is_multispecies = scalar keys %$species_ids > 1 ? 1 : 0;
+      my $species_count = 0;
       
-      foreach $species_id(keys %$species_ids) {
-        $sth = $dbc->prepare("SELECT version FROM ".$current_db_name.".coord_system WHERE species_id = ".$species_id." ORDER BY rank LIMIT 1;");
-        $sth->execute();
-        my $assembly;
-        $sth->bind_columns(\$assembly);
-        $sth->execute();
-        $sth->fetch();
-        $sth->finish();
-        
+      foreach my $species_id(keys %$species_ids) {
+        my $assembly = $self->get_assembly($dbc, $current_db_name, $species_id);
         next unless $assembly;
         
         # copy server details
@@ -284,7 +264,7 @@ sub get_all_jobs_by_server {
         $species_hash{species_id} = $species_id;
         $species_hash{assembly} = $assembly;
         $species_hash{dbname} = $current_db_name;
-        $species_hash{is_multispecies} = $is_multispecies;
+        $species_hash{is_multispecies} = scalar keys %$species_ids > 1 ? 1 : 0;
         
         # do we have SIFT or PolyPhen?
         if($var_db_name) {
@@ -293,14 +273,45 @@ sub get_all_jobs_by_server {
         }
 
         push @return, @{$self->get_all_jobs_by_species_hash(\%species_hash, $var_db_name, $reg_db_name)};
-        $count++;
+
+        $species_count++;
       }
       
-      die("ERROR: Problem getting species and assembly names from $current_db_name; check coord_system table\n") unless $count;
+      die("ERROR: Problem getting species and assembly names from $current_db_name; check coord_system table\n") unless $species_count;
     }
   }
   
   return \@return;
+}
+
+sub get_species_id_hash {
+  my ($self, $dbc, $current_db_name) = @_;
+
+  # get species names by id
+  my $sth = $dbc->prepare("select species_id, meta_value from ".$current_db_name.".meta where meta_key = 'species.production_name';");
+  $sth->execute();
+  
+  my ($species_id, $value, $species_ids);
+  $sth->bind_columns(\$species_id, \$value);
+  
+  $species_ids->{$species_id} = $value while $sth->fetch();
+  $sth->finish();
+
+  return $species_ids;
+}
+
+sub get_assembly {
+  my ($self, $dbc, $current_db_name, $species_id) = @_;
+
+  my $sth = $dbc->prepare("SELECT version FROM ".$current_db_name.".coord_system WHERE species_id = ".$species_id." ORDER BY rank LIMIT 1;");
+  $sth->execute();
+  my $assembly;
+  $sth->bind_columns(\$assembly);
+  $sth->execute();
+  $sth->fetch();
+  $sth->finish();
+
+  return $assembly;
 }
 
 sub has_var_db {

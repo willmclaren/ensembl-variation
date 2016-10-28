@@ -198,6 +198,8 @@ sub get_all_jobs_by_server {
   my @return;
 
   foreach my $current_db_name (@dbs) {
+
+    next if $self->is_strain($dbc, $current_db_name);
     
     # special case otherfeatures
     if($current_db_name =~ /otherfeatures/) {
@@ -282,6 +284,22 @@ sub get_all_jobs_by_server {
   }
   
   return \@return;
+}
+
+sub is_strain {
+  my ($self, $dbc, $current_db_name) = @_;
+
+  my $sth = $dbc->prepare("select meta_value from ".$current_db_name.".meta where meta_key = 'species.strain';");
+  $sth->execute();
+  my $strain_value;
+  $sth->bind_columns(\$strain_value);
+  $sth->execute();
+  $sth->fetch();
+  $sth->finish();
+
+  return 1 if $strain_value && $strain_value !~ /^reference/;
+
+  return $current_db_name =~ /mus_musculus_.+?_(core|otherfeatures)/;
 }
 
 sub get_species_id_hash {

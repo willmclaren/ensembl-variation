@@ -45,6 +45,16 @@ sub run_cmd {
   }
 }
 
+sub data_dir {
+  my $self = shift;
+  return $self->param('pipeline_dir').$self->param('dir_suffix'); 
+}
+
+sub dump_dir {
+  my $self = shift;
+  return $self->param('pipeline_dir').'/dumps'.$self->param('dir_suffix');
+}
+
 sub link_dir_contents {
   my ($self, $source_dir, $target_dir, $core, $var, $reg) = @_;
 
@@ -92,6 +102,19 @@ sub link_file {
       $source,
       $target
     )
+  );
+}
+
+sub get_tar_file_name {
+  my ($self, $dir, $species, $assembly, $mod) = @_;
+  
+  return sprintf(
+    '%s/%s_vep_%i_%s%s.tar.gz',
+    $dir,
+    $species,
+    $self->param('eg_version') || $self->param('ensembl_release'),
+    $assembly,
+    $mod || '',
   );
 }
 

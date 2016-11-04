@@ -233,15 +233,8 @@ sub tar {
 
   $mod ||= '';
 
-  my $tar_file = sprintf(
-    '%s/%s_vep_%i_%s%s.tar.gz',
-    $dir,
-    $species,
-    $self->param('eg_version') || $self->param('ensembl_release'),
-    $assembly,
-    $mod,
-  );
-
+  my $tar_file = $self->get_tar_file_name($dir, $species, $assembly, $mod);
+  
   unlink($tar_file);
 
   $self->run_cmd(
@@ -267,16 +260,6 @@ sub copy_synonyms {
     ),
     $target_dir.'/chr_synonyms.txt'
   );
-}
-
-sub data_dir {
-  my $self = shift;
-  return $self->param('pipeline_dir').$self->param('dir_suffix'); 
-}
-
-sub dump_dir {
-  my $self = shift;
-  return $self->param('pipeline_dir').'/dumps'.$self->param('dir_suffix');
 }
 
 1;

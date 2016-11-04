@@ -61,7 +61,9 @@ sub qc {
 
   my $type      = $self->param('type');
   my $has_var   = $self->param('variation');
-  my $converted = $mod && $mod =~ /tabix/
+  my $converted = $mod && $mod =~ /tabix/;
+  my $species   = $self->required_param('species');
+  my $assembly  = $self->required_param('assembly');
 
   my $dump_dir = $self->dump_dir();
   my $qc_dir = $dump_dir.'/qc/'.md5_hex($self->input_id);
@@ -70,8 +72,8 @@ sub qc {
 
   my $tar_file = $self->get_tar_file_name(
     $dump_dir,
-    $self->required_param('species'),
-    $self->required_param('assembly'),
+    $species,
+    $assembly,
     $mod
   );
 
@@ -89,7 +91,7 @@ sub qc {
   die("ERROR: Expected to find $extracted_dir/info.txt") unless -e "$extracted_dir/info.txt";
 
   # create objects
-  my $config_obj = Bio::EnsEMBL::VEP::Config->new({dir => $extracted_dir, offline => 1, species => $sp});
+  my $config_obj = Bio::EnsEMBL::VEP::Config->new({dir => $extracted_dir, offline => 1, species => $species});
   my $cache_dir_obj = Bio::EnsEMBL::VEP::CacheDir->new({dir => $extracted_dir, config => $config_obj});
 
   # check contents of info
@@ -98,11 +100,11 @@ sub qc {
 
   die("ERROR: species info key does not exist\n") unless $info->{species};
   die("ERROR: species info key does not match job species name\n")
-    unless $info->{species} eq $self->required_param('species');
+    unless $info->{species} eq $species;
 
   die("ERROR: assembly info key does not exist\n") unless $info->{assembly};
   die("ERROR: assembly info key does not match job assembly name\n")
-    unless $info->{assembly} eq $self->required_param('assembly');
+    unless $info->{assembly} eq $assembly;
 
   # var_type should be tabix if converted
   if($converted) {

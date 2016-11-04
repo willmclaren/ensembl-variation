@@ -61,14 +61,10 @@ sub qc {
 
   my $type      = $self->param('type');
   my $has_var   = $self->param('variation');
+  my $has_reg   = $self->param('regulation');
   my $converted = $mod && $mod =~ /tabix/;
   my $species   = $self->required_param('species');
   my $assembly  = $self->required_param('assembly');
-
-  my $dump_dir = $self->dump_dir();
-  my $qc_dir = $dump_dir.'/qc/'.md5_hex($self->input_id);
-  rmtree($qc_dir) if -d $qc_dir;
-  make_path($qc_dir);
 
   my $tar_file = $self->get_tar_file_name(
     $dump_dir,
@@ -78,6 +74,11 @@ sub qc {
   );
 
   die("ERROR: Tar file $tar_file not found\n") unless -e $tar_file;
+
+  my $dump_dir = $self->dump_dir();
+  my $qc_dir = $dump_dir.'/qc/'.md5_hex($self->input_id);
+  rmtree($qc_dir) if -d $qc_dir;
+  make_path($qc_dir);
 
   # untar
   $self->run_cmd(sprintf('tar -C %s -xzf %s', $qc_dir, $tar_file));
@@ -94,7 +95,18 @@ sub qc {
   my $config_obj = Bio::EnsEMBL::VEP::Config->new({dir => $extracted_dir, offline => 1, species => $species});
   my $cache_dir_obj = Bio::EnsEMBL::VEP::CacheDir->new({dir => $extracted_dir, config => $config_obj});
 
-  # check contents of info
+  # these subs check different aspects of the cache
+  $self->check_info($cache_dir_obj, $converted);
+
+  $self->check_annotation_sources($cache_dir_obj, $converted);
+}
+
+sub check_info {
+  my ($self, $cache_dir_obj, $converted) = @_;
+
+  my $species  = $self->required_param('species');
+  my $assembly = $self->required_param('assembly');
+
   my $info = $cache_dir_obj->info;
   die("ERROR: No keys in info\n") unless keys %$info;
 
@@ -116,7 +128,7 @@ sub qc {
   die("ERROR: version_data key not found\n") unless $info->{version_data} && ref($info->{version_data}) eq 'HASH';
 
   # check variation_cols defined
-  if($has_var) {
+  if($self->param('variation')) {
     die("ERROR: variation_cols info key not found\n") unless $info->{variation_cols};
 
     die("ERROR: variation_cols info value looks wrong: ".$info->{variation_cols}."\n")
@@ -125,6 +137,28 @@ sub qc {
     if($converted) {
       die("ERROR: variation_cols value does not include chr\n") unless $info->{variation_cols} =~ /^chr\,/;
     }
+  }
+}
+
+sub check_annotation_sources {
+  my ($self, $cache_dir_obj, $converted) = @_;
+
+  my $annotation_sources = $cache_dir_obj->get_all_AnnotationSources;
+
+  die("ERROR: No annotation sources retrieved\n") unless ref($annotation_sources) eq 'ARRAY' && scalar @$annotation_sources;
+
+  # expect core always
+  die("ERROR: No Transcript annotation source found\n")
+    unless grep {ref($_) eq 'Bio::EnsEMBL::VEP::AnnotationSource::Cache::Transcript'} @$annotation_sources;
+
+  if($self->param('variation')) {
+    my $t = 'Bio::EnsEMBL::VEP::AnnotationSource::Cache::Variation'.($converted ? 'Tabix' : '');
+    die("ERROR: No Variation annotation source found\n")
+      unless grep {ref($_) eq $t} @$annotation_sources;
+  }
+  if($self->param('regulation')) {
+    die("ERROR: No Regulation annotation source found\n")
+      unless grep {ref($_) eq 'Bio::EnsEMBL::VEP::AnnotationSource::Cache::RegFeat'} @$annotation_sources;
   }
 }
 

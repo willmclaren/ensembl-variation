@@ -139,8 +139,11 @@ sub write_output {
   # join
   $self->dataflow_output_id($self->param('joins'), 7);
 
-  # finish (rm dirs)
+  # qc
   $self->dataflow_output_id($self->param('joins'), 8);
+
+  # finish (rm dirs)
+  $self->dataflow_output_id($self->param('joins'), 9);
   
   return;
 }

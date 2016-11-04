@@ -271,7 +271,8 @@ sub pipeline_analyses {
 
         '6' => ['merge_vep'],
         '7' => ['join_vep'],
-        '8' => $self->o('debug') ? [] : ['finish_dump'],
+        '8' => ['qc'],
+        '9' => $self->o('debug') ? [] : ['finish_dump'],
       },
     },
 
@@ -347,6 +348,19 @@ sub pipeline_analyses {
       -rc_name       => 'default',
       -failed_job_tolerance => 0,
     },
+
+    {
+      -logic_name    => 'qc_vep',
+      -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::QCDump',
+      -parameters    => {
+        convert => $self->o('convert'),
+        @common_params
+      },
+      -wait_for      => ['join_vep'],
+      -analysis_capacity => 50,
+      -rc_name       => 'default',
+      -failed_job_tolerance => 0,
+    },
   );
 
   if (!$self->o('debug')) {  
@@ -355,13 +369,13 @@ sub pipeline_analyses {
         -logic_name => 'finish_dump',
         -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::FinishDump',
         -parameters => { @common_params },
-        -wait_for   => ['join_vep'],
+        -wait_for   => ['qc_vep'],
       },
       {
         -logic_name => 'distribute_dumps',
         -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::DistributeDumps',
         -parameters => { @common_params },
-        -wait_for   => ['join_vep'],
+        -wait_for   => ['qc_vep'],
       },
     );
     # if ($self->o('qc')) {

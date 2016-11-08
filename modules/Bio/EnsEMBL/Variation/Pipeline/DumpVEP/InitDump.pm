@@ -73,9 +73,11 @@ sub fetch_input {
     my @type_jobs = grep {$_->{type} eq $type} @jobs;
     $self->param($type, \@type_jobs);
 
-    for(@type_jobs) {
-      $pre_joins->{$_->{species}}->{$_->{assembly}}->{$_->{type}} = 1;
-      $pre_joins->{$_->{species}}->{$_->{assembly}}->{dir_suffix} = $_->{dir_suffix} || '';
+    foreach my $job(@type_jobs) {
+      my $pre_join = $pre_joins->{$job->{species}}->{$job->{assembly}} ||= {};
+      $pre_join->{$job->{type}} = 1;
+      $pre_join->{dir_suffix} = $job->{dir_suffix} || '';
+      $pre_join->{$_} = $job->{$_} for qw(host user pass port dbname is_multispecies species_id);
     }
   }
 
@@ -84,11 +86,13 @@ sub fetch_input {
 
   foreach my $species(keys %$pre_joins) {
     foreach my $assembly(keys %{$pre_joins->{$species}}) {
+      my $pre_join = $pre_joins->{$species}->{$assembly};
+
       my %base_job = (
         species    => $species,
         assembly   => $assembly,
-        dir_suffix => $pre_joins->{$species}->{$assembly}->{dir_suffix},
       );
+      $base_job{$_} = $pre_join->{$_} for qw(dir_suffix host user pass port dbname is_multispecies species_id);
       
       map {$base_job{$_} = 1} grep {$pre_joins->{$species}->{$assembly}->{$_}} qw(variation regulation);
 

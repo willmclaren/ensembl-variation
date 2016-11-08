@@ -251,6 +251,7 @@ sub pipeline_analyses {
       -input_ids     => [{}],
       -rc_name       => 'default',
       -hive_capacity => 1,
+      -max_retry_count => 1,
       -flow_into     => {
         # 1 = distribute dumps (not set here)
 
@@ -271,7 +272,7 @@ sub pipeline_analyses {
 
         '6' => ['merge_vep'],
         '7' => ['join_vep'],
-        '8' => ['qc'],
+        '8' => ['qc_vep'],
         '9' => $self->o('debug') ? [] : ['finish_dump'],
       },
     },
@@ -347,6 +348,7 @@ sub pipeline_analyses {
       -analysis_capacity => 20,
       -rc_name       => 'default',
       -failed_job_tolerance => 0,
+      -max_retry_count => 1,
     },
 
     {
@@ -354,12 +356,14 @@ sub pipeline_analyses {
       -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::QCDump',
       -parameters    => {
         convert => $self->o('convert'),
+        lrg     => $self->o('lrg'),
         @common_params
       },
       -wait_for      => ['join_vep'],
       -analysis_capacity => 50,
       -rc_name       => 'default',
       -failed_job_tolerance => 0,
+      -max_retry_count => 1,
     },
   );
 
@@ -370,12 +374,14 @@ sub pipeline_analyses {
         -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::FinishDump',
         -parameters => { @common_params },
         -wait_for   => ['qc_vep'],
+        -max_retry_count => 1,
       },
       {
         -logic_name => 'distribute_dumps',
         -module     => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::DistributeDumps',
         -parameters => { @common_params },
         -wait_for   => ['qc_vep'],
+        -max_retry_count => 1,
       },
     );
     # if ($self->o('qc')) {

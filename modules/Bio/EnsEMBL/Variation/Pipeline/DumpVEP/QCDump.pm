@@ -119,7 +119,7 @@ sub qc {
 
   $self->check_dirs($cache_dir_obj, $converted);
 
-  $self->run_test_set($qc_dir) if $has_var && $type ne 'otherfeatures';
+  $self->run_test_set($qc_dir) if $has_var && $type ne 'refseq';
 
   # clean up
   rmtree($qc_dir);
@@ -277,6 +277,8 @@ sub run_test_set {
     no_stats => 1,
     regulatory => $self->param('regulation'),
     check_existing => $self->param('variation'),
+    buffer_size => 10,
+    $self->param('type') => 1,
   });
 
   my $json = JSON->new();
@@ -294,7 +296,12 @@ sub run_test_set {
     # check consequence type
     die("ERROR: no data for $feature_type found in JSON output\n".(Dumper $data)) unless $data->{$feature_type.'_consequences'};
 
-    if(my ($blob) = grep {$_->{$feature_type.'_id'} eq $feature_id} @{$data->{$feature_type.'_consequences'}}) {
+    if(
+      my ($blob) = grep {
+        # motif_feature stable_id from DB is the regfeat ID, annoyingly
+        $feature_type eq 'motif_feature' ? 1 : $_->{$feature_type.'_id'} eq $feature_id
+      } @{$data->{$feature_type.'_consequences'}}
+    ) {
       die("ERROR: no consequence_terms field in blob\n".(Dumper $data)) unless $blob->{consequence_terms};
       my $got_cons = join(",", sort @{$blob->{consequence_terms}});
       die("ERROR: consequence_types don't match, expected: $expected_cons, got: $got_cons\n".(Dumper $data)) unless $expected_cons eq $got_cons;
@@ -324,10 +331,10 @@ sub generate_test_file {
     $self->param('assembly')
   );
 
-  return $file if -e $file;
-
   # use a lock file in case two processes try writing to the same one
   my $lock = $file.'.lock';
+
+  return $file if -e $file && !-e $lock;
 
   # wait 3hrs for other process to finish, it will be a long-running query in human
   my $sleep_count = 0;
@@ -347,8 +354,9 @@ sub generate_test_file {
   close OUT;
   $self->{_lock_file} = $lock;
 
-  my $dbname = $self->param('dbname');
-  $dbname =~ s/core|otherfeatures/variation/;
+  my $core_dbname = $self->param('dbname');
+  my $var_dbname = $core_dbname;
+  $var_dbname =~ s/core|otherfeatures/variation/;
 
   my $dba = Bio::EnsEMBL::Variation::DBSQL::DBAdaptor->new(
     -group   => 'variation',
@@ -357,36 +365,75 @@ sub generate_test_file {
     -host    => $self->param('host'),
     -user    => $self->param('user'),
     -pass    => $self->param('pass'),
-    -dbname  => $dbname,
+    -dbname  => $var_dbname,
     -MULTISPECIES_DB => $self->param('is_multispecies'),
     -species_id => $self->param('species_id'),
   );
 
+  # get distinct seq_region_ids
+  my $sth = $dba->dbc->prepare(qq{
+    SELECT DISTINCT(seq_region_id)
+    FROM variation_feature
+  });
+  $sth->execute;
+  my @sr_ids;
+  while(my $arrayref = $sth->fetchrow_arrayref) {
+    push @sr_ids, $arrayref->[0];
+  }
+  $sth->finish;
+
   my @tables = ('transcript', ($self->param('regulation') ? qw(regulatory_feature motif_feature) : ()));
 
-  my $fh;
+  my @rows;
 
   foreach my $table(@tables) {
-    my $sth = $dba->dbc->prepare(qq{
+    $sth = $dba->dbc->prepare(qq{
+      SELECT distinct(consequence_types)
+      FROM $table\_variation
+    });
+    $sth->execute;
+
+    # The idea of this query is to fetch one input variant to test
+    # for every conseqeunce_type and seq_region combination.
+    # It contains a few extra clauses to:
+    # - exclude failed variants
+    # - exclude variants with non-standard allele strings (e.g. COSMIC)
+    # - exclude transcript_variation entries where the variation_feature is not on the same seq_region as the transcript
+    my $sth2 = $dba->dbc->prepare(qq{
       SELECT s.name, vf.seq_region_start, vf.seq_region_end, vf.allele_string, vf.seq_region_strand,
       vf.variation_name, tv.feature_stable_id, tv.consequence_types
-      FROM seq_region s, $table\_variation tv, variation_feature vf
+      FROM seq_region s, $table\_variation tv, $core_dbname\.transcript t, variation_feature vf
       LEFT JOIN failed_variation fv on vf.variation_id = fv.variation_id
       WHERE s.seq_region_id = vf.seq_region_id
       AND vf.variation_feature_id = tv.variation_feature_id
+      AND tv.feature_stable_id = t.stable_id
+      AND vf.seq_region_id = t.seq_region_id
       AND fv.variation_id IS NULL
-      GROUP BY vf.seq_region_id, tv.consequence_types
-    }, {mysql_use_result => 1});
-    $sth->execute;
+      AND vf.allele_string RLIKE '^[ACGT]+/[ACGT]+\$'
+      AND tv.consequence_types = ?
+      AND vf.seq_region_id = ?
+      LIMIT 1
+    });
 
-    $fh ||= FileHandle->new($file, 'r');
+    while(my $consref = $sth->fetchrow_arrayref) {
+      foreach my $sr(@sr_ids) {
+        $sth2->execute($consref->[0], $sr);
 
-    while(my $arrayref = $sth->fetchrow_arrayref()) {
-      print $fh join("\t", @$arrayref, $table)."\n";
+        while(my $arrayref = $sth2->fetchrow_arrayref) {
+          push @rows, [@$arrayref, $table];
+        }
+      }
     }
 
-    $sth->finish();
+    $sth->finish;
+    $sth2->finish;
   }
+
+  # print sorted in chr order
+  my $fh = FileHandle->new("> $file");
+  print $fh join("\t", @$_)."\n" for
+    sort {$a->[0] cmp $b->[0] || $a->[1] <=> $b->[1] || $a->[2] <=> $b->[2]}
+    @rows;
 
   $fh->close();
 

@@ -66,56 +66,44 @@ sub fetch_input {
   }
 
   # this will contain the join jobs
-  my $pre_joins = {};
+  my @join_jobs;
 
   # make some lists
   foreach my $type(qw(core otherfeatures variation regulation)) {
-    my @type_jobs = grep {$_->{type} eq $type} @jobs;
+
+    # get all the per-chr jobs of this type
+    my @type_jobs = grep {$_->{type} eq $type} @jobs;    
     $self->param($type, \@type_jobs);
 
-    foreach my $job(@type_jobs) {
-      my $pre_join = $pre_joins->{$job->{species}}->{$job->{assembly}} ||= {};
-      $pre_join->{$job->{type}} = 1;
-      $pre_join->{dir_suffix} = $job->{dir_suffix} || '';
-      $pre_join->{$_} = $job->{$_} for qw(host user pass port dbname is_multispecies species_id);
-    }
-  }
+    next unless scalar @type_jobs;
+    my $type_job = $type_jobs[0];
 
-  # now create the actual join jobs
-  my @join_jobs;
+    # now we need to create a "join job" for each species/assembly/type
+    if($type eq 'core' || $type eq 'otherfeatures') {
 
-  foreach my $species(keys %$pre_joins) {
-    foreach my $assembly(keys %{$pre_joins->{$species}}) {
-      my $pre_join = $pre_joins->{$species}->{$assembly};
+      my %join_job = %{$type_job};
+      $join_job{dir_suffix} ||= '';
+      delete($join_job{$_}) for qw(added_length regions);
 
-      my %base_job = (
-        species    => $species,
-        assembly   => $assembly,
-      );
-      $base_job{$_} = $pre_join->{$_} for qw(dir_suffix host user pass port dbname is_multispecies species_id);
-      
-      map {$base_job{$_} = 1} grep {$pre_joins->{$species}->{$assembly}->{$_}} qw(variation regulation);
+      if($type eq 'otherfeatures') {
+        $join_job{type} = 'refseq';
+        push @join_jobs, \%join_job;
 
-      # core job
-      if($pre_joins->{$species}->{$assembly}->{core}) {
-        my %job = %base_job;
-        $job{type} = 'core';
-        push @join_jobs, \%job;
-      }
-
-      # refseq job
-      if($pre_joins->{$species}->{$assembly}->{otherfeatures}) {
-        my %job = %base_job;
-        $job{type} = 'refseq';
-        push @join_jobs, \%job;
-
-        # merge job
+        # and also one for the merged cache if required
         if($self->param('merged')) {
-          my %job = %base_job;
-          $job{type} = 'merged';
-          push @join_jobs, \%job;
+          my %merged_job = %join_job;
+          $merged_job{type} = 'merged';
+          push @join_jobs, \%merged_job;
         }
       }
+      else {
+        push @join_jobs, \%join_job;
+      }
+    }
+    else {
+      $_->{$type} = 1 for
+        grep {$_->{species} eq $type_job->{species} && $_->{assembly} eq $type_job->{assembly}}
+        @join_jobs;
     }
   }
 
@@ -140,13 +128,9 @@ sub write_output {
   # merge ens+refseq
   $self->dataflow_output_id($self->param('merges'), 6);
 
-  # join
+  # join, qc and finish can all use the same input_id
   $self->dataflow_output_id($self->param('joins'), 7);
-
-  # qc
   $self->dataflow_output_id($self->param('joins'), 8);
-
-  # finish (rm dirs)
   $self->dataflow_output_id($self->param('joins'), 9);
   
   return;

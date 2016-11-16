@@ -138,7 +138,7 @@ sub run {
   }
 
   unlink($mrg_root.'/info.txt_core');
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'cat %s %s | sort -u >> %s',
       $ens_root.'/info.txt_core',

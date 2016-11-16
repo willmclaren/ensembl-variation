@@ -36,15 +36,6 @@ use File::Path qw(make_path rmtree);
 
 use base qw(Bio::EnsEMBL::Variation::Pipeline::BaseVariationProcess);
 
-sub run_cmd {
-  my $self = shift;
-  my $cmd = shift;
-  if (my $return_value = system($cmd)) {
-    $return_value >>= 8;
-    die "system($cmd) failed: $return_value";
-  }
-}
-
 sub data_dir {
   my $self = shift;
   return $self->param('pipeline_dir').$self->param('dir_suffix'); 
@@ -80,7 +71,7 @@ sub link_dir_contents {
       }
       elsif($var == 2) {
         $self->link_file($source_dir.'/'.$chr.'/all_vars.gz', $target_dir.'/'.$chr.'/all_vars.gz');
-        $self->link_file($source_dir.'/'.$chr.'/all_vars.gz.tbi', $target_dir.'/'.$chr.'/all_vars.gz.tbi');
+        $self->link_file($source_dir.'/'.$chr.'/all_vars.gz.csi', $target_dir.'/'.$chr.'/all_vars.gz.csi');
       }
     }
 
@@ -96,7 +87,7 @@ sub link_dir_contents {
 sub link_file {
   my ($self, $source, $target) = @_;
 
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'ln -f %s %s',
       $source,

@@ -71,7 +71,7 @@ sub core {
 
   # create info file
   unlink($target_dir.'/info.txt');
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'cat %s >> %s',
       $source_dir.'/info.txt_'.$_,
@@ -127,7 +127,7 @@ sub _base_refseq_merged {
 
   # create info file
   unlink($target_dir.'/info.txt');
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'cat %s >> %s',
       $source_dir.'/info.txt_core',
@@ -147,7 +147,7 @@ sub _base_refseq_merged {
 
     $self->link_dir_contents($source_dir, $target_dir, 0, $var, $reg);
 
-    $self->run_cmd(
+    $self->run_system_command(
       sprintf(
         'cat %s >> %s',
         $source_dir.'/info.txt_'.$_,
@@ -182,7 +182,7 @@ sub clear_var_files {
   my @chrs = grep {$_ !~ /^\./ && -d $dir.'/'.$_} readdir(DIR);
 
   foreach my $chr(@chrs) {
-    $self->run_cmd(sprintf('rm -f %s/%s/*_var.gz', $dir, $chr));
+    $self->run_system_command(sprintf('rm -f %s/%s/*_var.gz', $dir, $chr));
   }
 
   closedir DIR;
@@ -201,7 +201,7 @@ sub create_converted_version {
   unlink($target_dir.'/info.txt');
 
   # $info_dir is the core-type info.txt, this might be different for _refseq and _merged caches
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'cat %s >> %s',
       $info_dir.'/info.txt_core',
@@ -210,7 +210,7 @@ sub create_converted_version {
   );
 
   # get the other info bits from the core dir
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'cat %s >> %s',
       $source_dir.'/info.txt_'.$_,
@@ -237,7 +237,7 @@ sub tar {
   
   unlink($tar_file);
 
-  $self->run_cmd(
+  $self->run_system_command(
     sprintf(
       'tar -cz -C %s -f %s %s',
       $dir,

@@ -61,7 +61,7 @@ sub run {
   my $self = shift;
 
   $self->qc();
-  $self->qc('_tabixconverted') if $self->param('convert');
+  $self->qc('_tabixconverted') if $self->param('convert') && $self->param('variation');
 
   return 1;
 }
@@ -91,7 +91,7 @@ sub qc {
   make_path($qc_dir);
 
   # untar
-  $self->run_cmd(sprintf('tar -C %s -xzf %s', $qc_dir, $tar_file));
+  $self->run_system_command(sprintf('tar -C %s -xzf %s', $qc_dir, $tar_file));
 
   # check dir exists
   my $method_name = ($type eq 'core' ? '' : $type.'_').'species_suffix';
@@ -240,7 +240,8 @@ sub check_dirs {
       die("ERROR: File name $file does not look right\n")
         unless $file =~ /\d+\-\d+(\_(var|reg))?\.gz/
         or $file eq 'all_vars.gz'
-        or $file eq 'all_vars.gz.tbi';
+        or $file eq 'all_vars.gz.tbi'
+        or $file eq 'all_vars.gz.csi';
 
       if($file =~ /var/) {
         die("ERROR: Cache should not contain var files\n") unless $self->param('variation');
@@ -248,7 +249,7 @@ sub check_dirs {
         die("ERROR: Basic cache should not contain all_vars.gz file\n") if !$converted && $file eq 'all_vars.gz';
       }
       elsif($file =~ /reg/) {
-        die("ERROR: Cache should not contain var files\n") unless $self->param('regulation');
+        die("ERROR: Cache should not contain regulation files\n") unless $self->param('regulation');
       }
     }
   }
@@ -266,8 +267,13 @@ sub run_test_set {
     species => $self->param('species'),
     assembly => $self->param('assembly'),
     cache_version => $self->param('eg_version') || $self->param('ensembl_release'),
-    offline => 1,
+    offline => 0,
+    cache => 1,
     database => 0,
+    host => $self->param('host'),
+    user => $self->param('user'),
+    port => $self->param('port'),
+    password => $self->param('pass'),
     dir => $qc_dir,
     input_file => $test_file,
     format => 'ensembl',
@@ -278,6 +284,8 @@ sub run_test_set {
     regulatory => $self->param('regulation'),
     check_existing => $self->param('variation'),
     buffer_size => 10,
+    check_ref => 1,
+    warning_file => $qc_dir.'/warnings.txt',
     $self->param('type') => 1,
   });
 
@@ -286,7 +294,7 @@ sub run_test_set {
   while(my $line = $runner->next_output_line) {
     my $data = $json->decode($line);
 
-    die("ERROR: input field not found in JSON output\n".(Dumper $data)) unless $data->{input};
+    die("ERROR: input field not found in JSON output\nQC dir: $qc_dir\n".(Dumper $data)) unless $data->{input};
     my @input = split("\t", $data->{input});
 
     my $feature_type = $input[-1];
@@ -294,7 +302,7 @@ sub run_test_set {
     my $feature_id = $input[-3];
 
     # check consequence type
-    die("ERROR: no data for $feature_type found in JSON output\n".(Dumper $data)) unless $data->{$feature_type.'_consequences'};
+    die("ERROR: no data for $feature_type found in JSON output\nQC dir: $qc_dir\n".(Dumper $data)) unless $data->{$feature_type.'_consequences'};
 
     if(
       my ($blob) = grep {
@@ -302,20 +310,20 @@ sub run_test_set {
         $feature_type eq 'motif_feature' ? 1 : $_->{$feature_type.'_id'} eq $feature_id
       } @{$data->{$feature_type.'_consequences'}}
     ) {
-      die("ERROR: no consequence_terms field in blob\n".(Dumper $data)) unless $blob->{consequence_terms};
+      die("ERROR: no consequence_terms field in blob\nQC dir: $qc_dir\n".(Dumper $data)) unless $blob->{consequence_terms};
       my $got_cons = join(",", sort @{$blob->{consequence_terms}});
-      die("ERROR: consequence_types don't match, expected: $expected_cons, got: $got_cons\n".(Dumper $data)) unless $expected_cons eq $got_cons;
+      die("ERROR: consequence_types don't match, expected: $expected_cons, got: $got_cons\nQC dir: $qc_dir\n".(Dumper $data)) unless $expected_cons eq $got_cons;
     }
     else {
-      die("ERROR: no data for $feature_id found in JSON output\n".(Dumper $data));
+      die("ERROR: no data for $feature_id found in JSON output\nQC dir: $qc_dir\n".(Dumper $data));
     }
 
     # check colocated variants
     if($self->param('variation')) {
       my $expected_var_id = $input[-4];
-      die("ERROR: no data for colocated_variants found in JSON output\n".(Dumper $data)) unless $data->{colocated_variants};
+      die("ERROR: no data for colocated_variants found in JSON output\nQC dir: $qc_dir\n".(Dumper $data)) unless $data->{colocated_variants};
 
-      die("ERROR: expected var id $expected_var_id not found\n".(Dumper $data))
+      die("ERROR: expected var id $expected_var_id not found\nQC dir: $qc_dir\n".(Dumper $data))
         unless grep {$_->{id} eq $expected_var_id} @{$data->{colocated_variants}};
     }
   }

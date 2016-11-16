@@ -109,14 +109,14 @@ sub run {
 
       next unless -e "$root/$chr/all_vars";
 
-      $self->run_cmd(
+      $self->run_system_command(
         sprintf(
           "sort -k%i,%in %s/%s/all_vars | bgzip -c > %s/%s/all_vars.gz",
           $start_i, $start_i, $root, $chr, $root, $chr
         )
       );
 
-      $self->run_cmd("tabix -s 1 -b $start_i -e $start_i $root/$chr/all_vars.gz");
+      $self->run_system_command("tabix -C -s 1 -b $start_i -e $start_i $root/$chr/all_vars.gz");
 
       unlink("$root/$chr/all_vars");
     }

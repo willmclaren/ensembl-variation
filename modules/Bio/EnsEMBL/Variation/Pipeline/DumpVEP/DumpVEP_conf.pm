@@ -64,7 +64,7 @@ sub default_options {
 
     # a directory to keep hive output files and your registry file, you should
     # create this if it doesn't exist
-    pipeline_dir            => '/nfs/production/panda/ensembl/'.$ENV{'USER'}.'/'.$self->o('pipeline_name').'/'.$self->o('ensembl_release'),
+    pipeline_dir            => '/hps/nobackup/production/ensembl/'.$ENV{'USER'}.'/'.$self->o('pipeline_name').'/'.$self->o('ensembl_release'),
 
     # a directory where hive workers will dump STDOUT and STDERR for their jobs
     # if you use lots of workers this directory can get quite big, so it's
@@ -109,10 +109,6 @@ sub default_options {
     # include or exclude DBs with these patterns
     include_pattern => undef,
     exclude_pattern => undef,
-    
-    # this sets the fraction of files per cache that
-    # healthcheck_vep_caches.pl checks
-    hc_random => 0.05,
 
     # include LRGs in dumps
     lrg => 1,

@@ -67,6 +67,7 @@ sub fetch_input {
 
   # this will contain the join jobs
   my @join_jobs;
+  my %seen;
 
   # make some lists
   foreach my $type(qw(core otherfeatures variation regulation)) {
@@ -76,34 +77,41 @@ sub fetch_input {
     $self->param($type, \@type_jobs);
 
     next unless scalar @type_jobs;
-    my $type_job = $type_jobs[0];
 
     # now we need to create a "join job" for each species/assembly/type
     if($type eq 'core' || $type eq 'otherfeatures') {
 
-      my %join_job = %{$type_job};
-      $join_job{dir_suffix} ||= '';
-      delete($join_job{$_}) for qw(added_length regions);
+      foreach my $type_job(@type_jobs) {
+        my %join_job = %{$type_job};
+        $join_job{dir_suffix} ||= '';
+        delete($join_job{$_}) for qw(added_length regions);
 
-      if($type eq 'otherfeatures') {
-        $join_job{type} = 'refseq';
-        push @join_jobs, \%join_job;
+        my $key = join("", sort values %join_job);
+        next if $seen{$key};
+        $seen{$key} = 1;
 
-        # and also one for the merged cache if required
-        if($self->param('merged')) {
-          my %merged_job = %join_job;
-          $merged_job{type} = 'merged';
-          push @join_jobs, \%merged_job;
+        if($type eq 'otherfeatures') {
+          $join_job{type} = 'refseq';
+          push @join_jobs, \%join_job;
+
+          # and also one for the merged cache if required
+          if($self->param('merged')) {
+            my %merged_job = %join_job;
+            $merged_job{type} = 'merged';
+            push @join_jobs, \%merged_job;
+          }
         }
-      }
-      else {
-        push @join_jobs, \%join_job;
+        else {
+          push @join_jobs, \%join_job;
+        }
       }
     }
     else {
-      $_->{$type} = 1 for
-        grep {$_->{species} eq $type_job->{species} && $_->{assembly} eq $type_job->{assembly}}
-        @join_jobs;
+      foreach my $type_job(@type_jobs) {
+        $_->{$type} = 1 for
+          grep {$_->{species} eq $type_job->{species} && $_->{assembly} eq $type_job->{assembly}}
+          @join_jobs;
+      }
     }
   }
 

@@ -199,7 +199,7 @@ sub default_options {
       -port   => $self->o('hive_db_port'),
       -user   => $self->o('hive_db_user'),
       -pass   => $self->o('hive_db_password'),            
-      -dbname => $ENV{'USER'}.'_'.$self->o('pipeline_name'),
+      -dbname => $ENV{'USER'}.'_'.$self->o('pipeline_name').'_'.$self->o('ensembl_release'),
       -driver => 'mysql',
     },
     

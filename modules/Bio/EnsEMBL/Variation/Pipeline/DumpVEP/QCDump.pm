@@ -226,6 +226,9 @@ sub check_dirs {
   my $ta = $dba->get_TranscriptAdaptor();
   @slices = grep {$ta->count_all_by_Slice($_)} @slices;
 
+  my $has_var = $self->param('variation') ? 1 : 0;
+  my $has_reg = $self->param('regulation') ? 1 : 0;
+
   foreach my $slice(@slices) {
     my $chr = $slice->seq_region_name;
     die("ERROR: Dir $dir/$chr missing\n") unless -d "$dir/$chr";
@@ -244,12 +247,12 @@ sub check_dirs {
         or $file eq 'all_vars.gz.csi';
 
       if($file =~ /var/) {
-        die("ERROR: Cache should not contain var files\n") unless $self->param('variation');
+        die("ERROR: Cache should not contain var files\n") unless $has_var;
         die("ERROR: Converted cache should not contain per-MB files\n") if $converted && $file =~ /\_var\.gz/;
         die("ERROR: Basic cache should not contain all_vars.gz file\n") if !$converted && $file eq 'all_vars.gz';
       }
       elsif($file =~ /reg/) {
-        die("ERROR: Cache should not contain regulation files\n") unless $self->param('regulation');
+        die("ERROR: Cache should not contain regulation files\n") unless $has_reg;
       }
     }
   }
@@ -262,10 +265,14 @@ sub run_test_set {
   # get a test file
   my $test_file = $self->generate_test_file();
 
+  my $has_var = $self->param('variation') ? 1 : 0;
+  my $has_reg = $self->param('regulation') ? 1 : 0;
+
   # create a VEP Runner
   my $runner = Bio::EnsEMBL::VEP::Runner->new({
     species => $self->param('species'),
     assembly => $self->param('assembly'),
+    db_version => $self->param('ensembl_release'),
     cache_version => $self->param('eg_version') || $self->param('ensembl_release'),
     offline => 0,
     cache => 1,
@@ -274,6 +281,7 @@ sub run_test_set {
     user => $self->param('user'),
     port => $self->param('port'),
     password => $self->param('pass'),
+    is_multispecies => $self->param('is_multispecies'),
     dir => $qc_dir,
     input_file => $test_file,
     format => 'ensembl',
@@ -281,8 +289,8 @@ sub run_test_set {
     safe => 1,
     quiet => 1,
     no_stats => 1,
-    regulatory => $self->param('regulation'),
-    check_existing => $self->param('variation'),
+    regulatory => $has_reg,
+    check_existing => $has_var,
     buffer_size => 10,
     check_ref => 1,
     warning_file => $qc_dir.'/warnings.txt',
@@ -319,7 +327,7 @@ sub run_test_set {
     }
 
     # check colocated variants
-    if($self->param('variation')) {
+    if($has_var) {
       my $expected_var_id = $input[-4];
       die("ERROR: no data for colocated_variants found in JSON output\nQC dir: $qc_dir\n".(Dumper $data)) unless $data->{colocated_variants};
 
@@ -363,8 +371,9 @@ sub generate_test_file {
   $self->{_lock_file} = $lock;
 
   my $core_dbname = $self->param('dbname');
+  $core_dbname =~ s/otherfeatures/core/;
   my $var_dbname = $core_dbname;
-  $var_dbname =~ s/core|otherfeatures/variation/;
+  $var_dbname =~ s/core/variation/;
 
   my $dba = Bio::EnsEMBL::Variation::DBSQL::DBAdaptor->new(
     -group   => 'variation',

@@ -66,6 +66,7 @@ sub get_vep_params {
   $params->{cache_version}   = $self->param('eg_version') || $self->param('ensembl_release');
   $params->{assembly}        = $self->required_param('assembly');
   $params->{is_multispecies} = $self->param('is_multispecies');
+  $params->{no_slice_cache}  = 1;
 
   # sift, polyphen
   $params->{$_} = 'b' for grep {$self->param($_)} qw(sift polyphen);

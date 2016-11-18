@@ -63,8 +63,8 @@ sub core {
   # clear any previous existing dir
   rmtree($target_dir);
 
-  my $var = $self->param('variation');
-  my $reg = $self->param('regulation');
+  my $var = $self->param('variation') ? 1 : 0;
+  my $reg = $self->param('regulation') ? 1 : 0;
 
   # add content
   $self->link_dir_contents($source_dir, $target_dir, 1, $var, $reg);
@@ -139,8 +139,8 @@ sub _base_refseq_merged {
   $self->copy_synonyms($target_dir);
 
   # now copy var and reg stuff
-  my $var = $self->param('variation');
-  my $reg = $self->param('regulation');
+  my $var = $self->param('variation') ? 1 : 0;
+  my $reg = $self->param('regulation') ? 1 : 0;
 
   if($var || $reg) {
     $source_dir = $self->data_dir.'/'.$self->species_suffix;

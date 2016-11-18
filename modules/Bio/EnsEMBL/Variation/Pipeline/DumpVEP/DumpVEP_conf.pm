@@ -240,8 +240,6 @@ sub pipeline_analyses {
         exclude_pattern => $self->o('exclude_pattern'),
         dump_servers    => $self->o('dump_servers'),
         refseq          => $self->o('refseq'),
-        merged          => $self->o('merged'),
-        lrg             => $self->o('lrg'),
         @common_params
       },
       -input_ids     => [{}],
@@ -249,27 +247,32 @@ sub pipeline_analyses {
       -hive_capacity => 1,
       -max_retry_count => 1,
       -flow_into     => {
-        # 1 = distribute dumps (not set here)
-
-        # 2 = core
-        # 3 = otherfeatures (refseq)
-        # 4 = variation
-        # 5 = regulation
-
-        # 6 = join
-        # 7 = finish
-
         '1' => $self->o('debug') ? [] : ['distribute_dumps'],
+        '2' => ['create_dump_jobs'],
+      },
+    },
 
-        '2' => ['dump_vep_core'],
-        '3' => ['dump_vep_otherfeatures'],
-        '4' => ['dump_vep_variation'],
-        '5' => ['dump_vep_regulation'],
+    {
+      -logic_name    => 'create_dump_jobs',
+      -module        => 'Bio::EnsEMBL::Variation::Pipeline::DumpVEP::CreateDumpJobs',
+      -parameters    => {
+        merged          => $self->o('merged'),
+        lrg             => $self->o('lrg'),
+        @common_params
+      },
+      -rc_name       => 'default',
+      -analysis_capacity => 20,
+      -max_retry_count => 1,
+      -flow_into     => {
+        '3' => ['dump_vep_core'],
+        '4' => ['dump_vep_otherfeatures'],
+        '5' => ['dump_vep_variation'],
+        '6' => ['dump_vep_regulation'],
 
-        '6' => ['merge_vep'],
-        '7' => ['join_vep'],
-        '8' => ['qc_vep'],
-        '9' => $self->o('debug') ? [] : ['finish_dump'],
+        '7' => ['merge_vep'],
+        '8' => ['join_vep'],
+        '9' => ['qc_vep'],
+        '10' => $self->o('debug') ? [] : ['finish_dump'],
       },
     },
 

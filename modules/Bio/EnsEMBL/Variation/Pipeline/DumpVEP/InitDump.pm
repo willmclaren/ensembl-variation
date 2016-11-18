@@ -32,11 +32,7 @@ package Bio::EnsEMBL::Variation::Pipeline::DumpVEP::InitDump;
 use strict;
 use warnings;
 
-use File::Path qw(make_path);
-
 use Bio::EnsEMBL::Registry;
-use Bio::EnsEMBL::DBSQL::DBAdaptor;
-use Bio::EnsEMBL::Variation::DBSQL::DBAdaptor;
 
 use base qw(Bio::EnsEMBL::Variation::Pipeline::BaseVariationProcess);
 
@@ -47,8 +43,6 @@ my $DEBUG = 0;
 sub param_defaults {
   return {
     'refseq' => 0,
-    'merged' => 0,
-    'convert' => 0,
     'include_pattern' => '',
     'exclude_pattern' => '',
   };
@@ -56,68 +50,14 @@ sub param_defaults {
 
 sub fetch_input {
   my $self = shift;
-
-  my $servers = $self->required_param('dump_servers');
   
-  my @jobs;
-  
-  foreach my $server(@$servers) {
-    push @jobs, @{$self->get_all_jobs_by_server($server)};
-  }
-
-  # this will contain the join jobs
-  my @join_jobs;
-  my %seen;
-
-  # make some lists
-  foreach my $type(qw(core otherfeatures variation regulation)) {
-
-    # get all the per-chr jobs of this type
-    my @type_jobs = grep {$_->{type} eq $type} @jobs;    
-    $self->param($type, \@type_jobs);
-
-    next unless scalar @type_jobs;
-
-    # now we need to create a "join job" for each species/assembly/type
-    if($type eq 'core' || $type eq 'otherfeatures') {
-
-      foreach my $type_job(@type_jobs) {
-        my %join_job = %{$type_job};
-        $join_job{dir_suffix} ||= '';
-        delete($join_job{$_}) for qw(added_length regions);
-
-        my $key = join("", sort values %join_job);
-        next if $seen{$key};
-        $seen{$key} = 1;
-
-        if($type eq 'otherfeatures') {
-          $join_job{type} = 'refseq';
-          push @join_jobs, \%join_job;
-
-          # and also one for the merged cache if required
-          if($self->param('merged')) {
-            my %merged_job = %join_job;
-            $merged_job{type} = 'merged';
-            push @join_jobs, \%merged_job;
-          }
-        }
-        else {
-          push @join_jobs, \%join_job;
-        }
-      }
-    }
-    else {
-      foreach my $type_job(@type_jobs) {
-        $_->{$type} = 1 for
-          grep {$_->{species} eq $type_job->{species} && $_->{assembly} eq $type_job->{assembly}}
-          @join_jobs;
-      }
-    }
-  }
-
-  $self->param('merges', [grep {$_->{type} eq 'merged'} @join_jobs]);
-
-  $self->param('joins', \@join_jobs);
+  $self->param(
+    'species_jobs',
+    [
+      map {@{$self->get_all_species_jobs_by_server($_)}}
+      @{$self->required_param('dump_servers')}
+    ]
+  );
 
   return;
 }
@@ -125,26 +65,13 @@ sub fetch_input {
 sub write_output {
   my $self = shift;
 
-  # distribute
   $self->dataflow_output_id({}, 1);
-
-  $self->dataflow_output_id($self->param('core'), 2);
-  $self->dataflow_output_id($self->param('otherfeatures'), 3);
-  $self->dataflow_output_id($self->param('variation'), 4);
-  $self->dataflow_output_id($self->param('regulation'), 5);
-
-  # merge ens+refseq
-  $self->dataflow_output_id($self->param('merges'), 6);
-
-  # join, qc and finish can all use the same input_id
-  $self->dataflow_output_id($self->param('joins'), 7);
-  $self->dataflow_output_id($self->param('joins'), 8);
-  $self->dataflow_output_id($self->param('joins'), 9);
+  $self->dataflow_output_id($self->param('species_jobs'), 2);
   
   return;
 }
 
-sub get_all_jobs_by_server {
+sub get_all_species_jobs_by_server {
   my $self = shift;
   my $server = shift;
 
@@ -199,6 +126,8 @@ sub get_all_jobs_by_server {
   foreach my $current_db_name (@dbs) {
 
     next if $self->is_strain($dbc, $current_db_name);
+
+    my $group = 'core';
     
     # special case otherfeatures
     if($current_db_name =~ /otherfeatures/) {
@@ -218,68 +147,47 @@ sub get_all_jobs_by_server {
       $sth->finish();
       next unless $count;
 
-      my $species_ids = $self->get_species_id_hash($dbc, $current_db_name);
-      
-      foreach my $species_id(keys %$species_ids) {
-        my $assembly = $self->get_assembly($dbc, $current_db_name, $species_id);
-        next unless $assembly;
-
-        # copy server details
-        my %species_hash = %$server;
-      
-        $species_hash{species} = $species_ids->{$species_id};
-        $species_hash{species_id} = $species_id;
-        $species_hash{assembly} = $assembly;
-        $species_hash{dbname} = $current_db_name;
-        $species_hash{is_multispecies} = scalar keys %$species_ids > 1 ? 1 : 0;
-
-        # do we have SIFT or PolyPhen?
-        if(my $var_db_name = $self->has_var_db($dbc, $current_db_name)) {
-          my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name, $species_id);
-          $species_hash{$_} = $has_sift_poly->{$_} for keys %$has_sift_poly;
-        }
-
-        push @return, @{$self->get_all_jobs_by_species_hash(\%species_hash, undef, undef, 'otherfeatures')};
-      }
+      $group = 'otherfeatures';
     }
+
+    my $species_ids = $self->get_species_id_hash($dbc, $current_db_name);
     
-    else {
-      my $species_ids = $self->get_species_id_hash($dbc, $current_db_name);
-      
-      # do we have a variation DB?
-      my $var_db_name = $self->has_var_db($dbc, $current_db_name);
-      
-      # do we have a regulation DB?
-      my $reg_db_name = $self->has_reg_build($dbc, $current_db_name);
+    # do we have a variation DB?
+    my $var_db_name = $self->has_var_db($dbc, $current_db_name);
+    
+    # do we have a regulation DB?
+    my $reg_db_name = $self->has_reg_build($dbc, $current_db_name);
 
-      my $species_count = 0;
+    my $species_count = 0;
+    
+    foreach my $species_id(keys %$species_ids) {
+      my $assembly = $self->get_assembly($dbc, $current_db_name, $species_id);
+      next unless $assembly;
       
-      foreach my $species_id(keys %$species_ids) {
-        my $assembly = $self->get_assembly($dbc, $current_db_name, $species_id);
-        next unless $assembly;
-        
-        # copy server details
-        my %species_hash = %$server;
-        
-        $species_hash{species} = $species_ids->{$species_id};
-        $species_hash{species_id} = $species_id;
-        $species_hash{assembly} = $assembly;
-        $species_hash{dbname} = $current_db_name;
-        $species_hash{is_multispecies} = scalar keys %$species_ids > 1 ? 1 : 0;
-        
-        # do we have SIFT or PolyPhen?
-        if($var_db_name) {
-          my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name, $species_id);
-          $species_hash{$_} = $has_sift_poly->{$_} for keys %$has_sift_poly;
-        }
-
-        push @return, @{$self->get_all_jobs_by_species_hash(\%species_hash, $var_db_name, $reg_db_name)};
-
-        $species_count++;
+      # copy server details
+      my %species_hash = %$server;
+      
+      $species_hash{species} = $species_ids->{$species_id};
+      $species_hash{species_id} = $species_id;
+      $species_hash{assembly} = $assembly;
+      $species_hash{dbname} = $current_db_name;
+      $species_hash{group} = $group;
+      $species_hash{is_multispecies} = scalar keys %$species_ids > 1 ? 1 : 0;
+      $species_hash{variation} = $var_db_name;
+      $species_hash{regulation} = $reg_db_name;
+      
+      # do we have SIFT or PolyPhen?
+      if($var_db_name) {
+        my $has_sift_poly = $self->has_sift_poly($dbc, $var_db_name, $species_id);
+        $species_hash{$_} = $has_sift_poly->{$_} for keys %$has_sift_poly;
       }
-      
-      die("ERROR: Problem getting species and assembly names from $current_db_name; check coord_system table\n") unless $species_count;
+
+      push @return, \%species_hash;
     }
+
+    $species_count++;
+    
+    die("ERROR: Problem getting species and assembly names from $current_db_name; check coord_system table\n") unless $species_count;
   }
   
   return \@return;
@@ -401,183 +309,6 @@ sub has_reg_build {
   }
 
   return $has_reg_build ? $reg_db_name : undef;
-}
-
-sub get_all_jobs_by_species_hash {
-  my $self = shift;
-  my $species_hash = shift;
-  my $has_var_db = shift;
-  my $has_reg_db = shift;
-  my $group = shift || 'core';
-
-  # clearing the registry prevents a warning when we connect to
-  # mutiple core DBs of the same species (e.g. core, otherfeatures)
-  Bio::EnsEMBL::Registry->clear();
-
-  my $dba = Bio::EnsEMBL::DBSQL::DBAdaptor->new(
-    -group   => 'core',
-    -species => $species_hash->{species},
-    -port    => $species_hash->{port},
-    -host    => $species_hash->{host},
-    -user    => $species_hash->{user},
-    -pass    => $species_hash->{pass},
-    -dbname  => $species_hash->{dbname},
-    -MULTISPECIES_DB => $species_hash->{is_multispecies},
-    -species_id => $species_hash->{species_id},
-  );
-
-  if($self->param('eg')) {
-    my $mca = $dba->get_MetaContainerAdaptor;
-
-    if($mca->is_multispecies == 1) {
-      my $collection_db = $1 if($mca->dbc->dbname()=~/(.+)\_core/);
-      $species_hash->{dir_suffix} = "/".$collection_db;
-    }
-
-    $species_hash->{assembly}   = $mca->single_value_by_key('assembly.default');
-    $species_hash->{db_version} = $mca->schema_version();
-  }
-  else {
-    $species_hash->{db_version} = $self->param('ensembl_release');
-  }
-
-  # get slices
-  my $sa = $dba->get_SliceAdaptor;
-  my @slices = @{$sa->fetch_all('toplevel')};
-  push @slices, map {$_->alternate_slice} map {@{$_->get_all_AssemblyExceptionFeatures}} @slices;
-  push @slices, @{$sa->fetch_all('lrg', undef, 1, undef, 1)} if $self->param('lrg');
-
-  # remove/sort out duplicates, in human you get 3 Y slices
-  my %by_name;
-  $by_name{$_->seq_region_name}++ for @slices;
-  if(my @to_fix = grep {$by_name{$_} > 1} keys %by_name) {
-
-    foreach my $name(@to_fix) {
-
-      # remove those with duplicate name
-      @slices = grep {$_->seq_region_name ne $name} @slices;
-
-      # add a standard-fetched slice
-      push @slices, $sa->fetch_by_region(undef, $name);
-    }
-  }
-
-  # dumps synonyms
-  make_path($self->param('pipeline_dir').'/synonyms');
-
-  open SYN, sprintf(
-    ">%s/synonyms/%s_%s_chr_synonyms.txt",
-    $self->param('pipeline_dir'),
-    $species_hash->{species},
-    $species_hash->{assembly}
-  ) or die "ERROR: Could not write to synonyms file\n";
-
-  foreach my $slice(@slices) {
-    print SYN $slice->seq_region_name."\t".$_->name."\n" for @{$slice->get_all_synonyms};
-    delete($slice->{synonym});
-  }
-  close SYN;
-
-  # remove slices with no transcripts or variants on them
-  # otherwise the dumper will create a load of "empty" cache files
-  # in species with lots of unplaced scaffolds this means we create
-  # masses of pointless directories which take ages to process
-  my $ta = $dba->get_TranscriptAdaptor();
-  @slices = grep {$ta->count_all_by_Slice($_) || $self->count_vars($has_var_db, $species_hash, $_)} @slices;
-  delete($self->{_var_dba}) if $self->{_var_dba};
-
-  # now distribute the slices into jobs
-  # jobs can contain multiple slices
-  my @jobs;
-  my $min_length = 10e6;
-  my $added_length = 0;
-  my %hash;
-
-  foreach my $slice(sort {$b->end - $b->start <=> $a->end - $a->start} @slices) {
-    unless(%hash) {
-      %hash = %$species_hash;
-      $hash{type} = $group;
-      $hash{added_length} = 0;
-    }
-
-    push @{$hash{regions}}, {
-      chr => $slice->seq_region_name,
-      seq_region_id => $slice->get_seq_region_id,
-      start => $slice->start,
-      end => $slice->end,
-    };
-
-    $hash{added_length} += ($slice->end - $slice->start);
-
-    if($hash{added_length} > $min_length) {
-      $self->add_to_jobs(\@jobs, \%hash, $has_var_db, $has_reg_db);
-      $added_length = 0;
-      %hash = ();
-    }
-  }
-
-  $self->add_to_jobs(\@jobs, \%hash, $has_var_db, $has_reg_db);
-
-  # sort by type then length
-  @jobs = sort {$a->{type} cmp $b->{type} || $b->{added_length} <=> $b->{added_length}} @jobs;
-
-  return \@jobs;
-}
-
-sub count_vars {
-  my $self = shift;
-  my $var_db_name = shift;
-  my $species_hash = shift;
-  my $slice = shift;
-
-  return 0 unless $var_db_name;
-
-  if(!exists($self->{_var_dba})) {
-    $self->{_var_dba} = Bio::EnsEMBL::Variation::DBSQL::DBAdaptor->new(
-      -group   => 'variation',
-      -species => $species_hash->{species},
-      -port    => $species_hash->{port},
-      -host    => $species_hash->{host},
-      -user    => $species_hash->{user},
-      -pass    => $species_hash->{pass},
-      -dbname  => $var_db_name,
-      -MULTISPECIES_DB => $species_hash->{is_multispecies},
-      -species_id => $species_hash->{species_id},
-    );
-  }
-
-  my $sth = $self->{_var_dba}->dbc->prepare("SELECT COUNT(*) FROM variation_feature WHERE seq_region_id = ?");
-  $sth->execute($slice->get_seq_region_id);
-
-  my $v_count;
-  $sth->bind_columns(\$v_count);
-  $sth->fetch;
-  $sth->finish;
-
-  return $v_count;
-}
-
-sub add_to_jobs {
-  my $self = shift;
-  my $jobs = shift;
-  my $hash = shift;
-  my $has_var_db = shift;
-  my $has_reg_db = shift;
-
-  my %copy = %$hash;
-  push @$jobs, \%copy;
-
-  if($has_var_db) {
-    my %var = %{$hash};
-    $var{type} = 'variation';
-    push @$jobs, \%var;
-  }
-
-  if($has_reg_db) {
-    my %reg = %{$hash};
-    $reg{type} = 'regulation';
-    push @$jobs, \%reg;
-  }
 }
 
 1;

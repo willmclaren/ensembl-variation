@@ -125,7 +125,7 @@ sub get_all_species_jobs_by_server {
 
   foreach my $current_db_name (@dbs) {
 
-    next if $self->is_strain($dbc, $current_db_name);
+    next if $self->is_strain($dbc, $current_db_name) && $current_db_name =~ /mus_musculus/;
 
     my $group = 'core';
     
